@@ -256,4 +256,60 @@ function writeSecretFile(file, value, mode, force = false) {
   try { fs.fchmodSync(fd, mode); fs.writeSync(fd, value); } finally { fs.closeSync(fd); }   // fchmod: the mode exactly, whatever the umask
 }
 
-module.exports = { API_VERSION, create, hpkeSeal, sealValue, keyedDigest, solveStamp, request, wait, fileRefusal, writeSecretFile, reveal, parseTarget, signRequest, thumbprint, pickProof, decrypt, hpkeOpen, canOpen, CkretsError, TOKEN };
+// ckrets webhooks (preview): what a receiver checks before it acts on a delivery. RFC 9421, alg ecdsa-p256-sha256, tag
+// ckrets-webhook, over @method, @target-uri, content-digest, content-type and webhook-id, by the EC P-256 key in the
+// issuer's JWKS whose use is ckrets-event (never the receipt key). Also: the body matches content-digest, created is at
+// most maxAgeS old (300) and not in the future, and webhook-id is the event's id. Dedupe on the returned webhookId
+// yourself: delivery is at least once.
+//   url      the endpoint you configured for the webhook, as a string; never rebuilt from the request's Host header
+//   headers  the request headers: a plain object (any case), a Map, or a Fetch Headers object
+//   body     the raw body bytes as received (a Buffer, Uint8Array or string), before any JSON parsing
+//   jwks     the parsed /.well-known/jwks.json of the origin you expect (fetch and cache it)
+//   now      milliseconds since the epoch (Date.now()); the Python client's now is in seconds
+// Returns { ok: true, webhookId, event } or { ok: false, why }. It never throws: anything malformed is { ok: false }.
+const WEBHOOK_COMPONENTS = ['@method', '@target-uri', 'content-digest', 'content-type', 'webhook-id'];
+const WEBHOOK_SIG_INPUT = /^sig1=(\(([^()]*)\);created=([0-9]{1,12});expires=([0-9]{1,12});keyid="([^"]+)";alg="([^"]+)";tag="([^"]+)")$/;
+const WEBHOOK_SIG = /^sig1=:([A-Za-z0-9+/]{86}==):$/;   // 64 bytes: r || s, 32 each
+function webhookHeaders(headers) {
+  const h = {}, add = (k, v) => { if (v === undefined || v === null) return; /* an absent value is a missing header */ const n = String(k).toLowerCase(); if (Object.prototype.hasOwnProperty.call(h, n)) throw new Error('a header appears twice'); h[n] = Array.isArray(v) ? v.join(', ') : String(v); };
+  if (headers && typeof headers.forEach === 'function' && typeof headers.get === 'function') headers.forEach((v, k) => add(k, v));   // Headers, Map
+  else if (headers && typeof headers === 'object') for (const [k, v] of Object.entries(headers)) add(k, v);
+  return h;
+}
+function webhookKey(jwks, kid) {
+  const key = (jwks && Array.isArray(jwks.keys) ? jwks.keys : []).find((k) => k && k.kid === kid && k.use === 'ckrets-event');
+  if (!key) return { why: 'no ckrets-event key with that kid' };
+  if (key.kty !== 'EC' || key.crv !== 'P-256' || typeof key.x !== 'string' || typeof key.y !== 'string') return { why: 'the ckrets-event key is not a valid EC P-256 key' };
+  try { return { key: crypto.createPublicKey({ key: { kty: 'EC', crv: 'P-256', x: key.x, y: key.y }, format: 'jwk' }) }; } catch { return { why: 'the ckrets-event key is not a valid EC P-256 key' }; }
+}
+function verifyWebhook(opts) {
+  try { return verifyWebhookUnsafe(opts || {}); } catch (e) { return { ok: false, why: e && e.message === 'a header appears twice' ? e.message : 'malformed input' }; }
+}
+function verifyWebhookUnsafe({ method = 'POST', url, headers, body, jwks, now = Date.now(), maxAgeS = 300, skewS = 60 }) {
+  if (typeof url !== 'string' || !url) return { ok: false, why: 'url must be the endpoint you configured, as a string' };
+  if (typeof method !== 'string' || ![now, maxAgeS, skewS].every((x) => typeof x === 'number' && Number.isFinite(x)) || maxAgeS < 0 || skewS < 0) return { ok: false, why: 'malformed input' };   // a NaN window would let anything through
+  if (!(typeof body === 'string' || body instanceof Uint8Array)) return { ok: false, why: 'body must be the raw bytes as received (a Buffer, Uint8Array or string)' };
+  const raw = typeof body === 'string' ? Buffer.from(body, 'utf8') : Buffer.from(body.buffer, body.byteOffset, body.byteLength);
+  const h = webhookHeaders(headers);
+  const m = WEBHOOK_SIG_INPUT.exec(h['signature-input'] || '');
+  if (!m) return { ok: false, why: 'no ckrets Signature-Input' };
+  const [, sp, comps, createdS, expiresS, keyid, alg, tag] = m, created = Number(createdS), expires = Number(expiresS), nowS = Math.floor(now / 1000);
+  if (alg !== 'ecdsa-p256-sha256' || tag !== 'ckrets-webhook' || comps !== WEBHOOK_COMPONENTS.map((c) => `"${c}"`).join(' ')) return { ok: false, why: 'unexpected algorithm, tag or components' };
+  for (const c of WEBHOOK_COMPONENTS.slice(2)) if (!h[c]) return { ok: false, why: `missing header: ${c}` };
+  if ([url, method, h['content-digest'], h['content-type'], h['webhook-id']].some((v) => /[\r\n]/.test(v))) return { ok: false, why: 'a covered value has a line break' };
+  if (created > nowS + skewS) return { ok: false, why: 'created is in the future (a clock far off)' };
+  if (nowS - created > maxAgeS) return { ok: false, why: 'too old (a replay, or a clock far off)' };
+  if (expires < nowS - skewS) return { ok: false, why: 'expired' };
+  if (h['content-digest'] !== `sha-256=:${crypto.createHash('sha256').update(raw).digest('base64')}:`) return { ok: false, why: 'the body does not match content-digest' };
+  const k = webhookKey(jwks, keyid); if (!k.key) return { ok: false, why: k.why };
+  const sig = WEBHOOK_SIG.exec(h.signature || ''); if (!sig) return { ok: false, why: 'no sig1 Signature' };
+  const v = { '@method': method.toUpperCase(), '@target-uri': url, 'content-digest': h['content-digest'], 'content-type': h['content-type'], 'webhook-id': h['webhook-id'] };
+  const base = `${WEBHOOK_COMPONENTS.map((c) => `"${c}": ${v[c]}`).join('\n')}\n"@signature-params": ${sp}`;
+  if (!crypto.verify('sha256', Buffer.from(base), { key: k.key, dsaEncoding: 'ieee-p1363' }, Buffer.from(sig[1], 'base64'))) return { ok: false, why: 'the signature does not verify' };
+  let event; try { event = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(raw)); } catch { event = undefined; }   // strict UTF-8, as in Python
+  if (!event || typeof event !== 'object' || Array.isArray(event)) return { ok: false, why: 'the body is not a JSON object' };
+  if (event.id !== h['webhook-id']) return { ok: false, why: 'webhook-id is not the event id' };
+  return { ok: true, webhookId: h['webhook-id'], event };
+}
+
+module.exports = { verifyWebhook, API_VERSION, create, hpkeSeal, sealValue, keyedDigest, solveStamp, request, wait, fileRefusal, writeSecretFile, reveal, parseTarget, signRequest, thumbprint, pickProof, decrypt, hpkeOpen, canOpen, CkretsError, TOKEN };

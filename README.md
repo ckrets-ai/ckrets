@@ -40,18 +40,41 @@ pip install ckrets && ckrets reveal - --file ~/.config/app/token --mode 0600
 `CKRETS_KEY` is your ckrets key (optional for anonymous use), `CKRETS_BASE_URL` points elsewhere (default
 `https://ckrets.ai`), `CKRETS_SIGNING_KEY` and `CKRETS_ENC_KEY` hold the paths of your signing and X25519 key files.
 
+Receiving ckrets webhooks (preview)? Check each delivery before acting on it, with the issuer's JWKS
+(`https://ckrets.ai/.well-known/jwks.json`, fetched and cached), then dedupe on the id (delivery is at least once):
+
+```js
+const { verifyWebhook } = require('@ckrets/helper');
+const r = verifyWebhook({ url: 'https://hooks.example.com/ckrets', headers: req.headers, body: rawBody, jwks });
+if (!r.ok) return res.status(401).end();   // r.why says what failed
+```
+
+```python
+r = ckrets.verify_webhook("https://hooks.example.com/ckrets", request.headers, request.get_data(), jwks)
+```
+
+- `url` is the endpoint you configured for the webhook, written in your code; never rebuild it from the request's
+  `Host` header.
+- The body is the raw bytes as received, before any JSON parsing (a re-serialised body does not match its digest).
+- `headers` may be a plain object in any case, a `Map` or a Fetch `Headers` (JS), or any mapping (Python).
+- `now`, if you pass it, is milliseconds in JS (`Date.now()`) and seconds in Python (`time.time()`).
+- Only an EC P-256 key whose `use` is `ckrets-event` is accepted, never the receipt key. Anything malformed or missing
+  is refused with `{ ok: false, why }`; the check never throws.
+
 ## Develop
 
 Node 22 or later, and Python 3.9 or later with `cryptography>=42`.
 
 ```bash
 npm ci
-CKRETS_TEST_BASE_URL=<a ckrets API you may test against> npm test
+npm test                                  # the self-contained tests: no API needed
+CKRETS_TEST_BASE_URL=<a ckrets API you may test against> npm run test:api   # every test, against that API
 bash scripts/quickstart.sh <base url>     # packs, installs fresh and uses each package against that API
 ```
 
-The tests never skip: without `CKRETS_TEST_BASE_URL` (or `CKRETS_API_DIR`, a checkout of the API with its offline
-server) they fail and say so. A test that starts a child process closes it in a `finally`, so a failed assertion never
+`npm test` runs every test that needs no API: the files named in `package.json`'s `test` script, which run against
+keys and stand-ins made in the test. `npm run test:api` runs every test and never skips: without `CKRETS_TEST_BASE_URL` (or `CKRETS_API_DIR`, a checkout of the API with its offline server) it fails and
+says so. A test that starts a child process closes it in a `finally`, so a failed assertion never
 leaves `node --test` hanging. Every client sends `Ckrets-Version`, the dated API contract it was built against
 (`API_VERSION` in `helper/lib/index.js` and `python/ckrets/__init__.py`).
 

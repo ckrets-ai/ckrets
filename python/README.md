@@ -30,3 +30,17 @@ opens `fragment.v1` from the share URL's `#k=`, and `hpke.v1` with your X25519 p
 
 The same proofs and rules as `@ckrets/helper` (https://ckrets.ai/for-agents.md §3): `CKRETS_KEY`, the GitHub Actions
 OIDC token, or `CKRETS_SIGNING_KEY`; the value goes only where you say.
+
+Receiving ckrets webhooks (preview)? Check each delivery before acting on it, then dedupe on `webhook_id` (delivery is
+at least once):
+
+```python
+jwks = ...  # https://ckrets.ai/.well-known/jwks.json, fetched and cached
+r = ckrets.verify_webhook("https://hooks.example.com/ckrets", request.headers, request.get_data(), jwks)
+if not r["ok"]:
+    abort(401)  # r["why"] says what failed
+```
+
+`url` is the endpoint you configured, never rebuilt from the `Host` header; the body is the raw bytes as received;
+`now`, if you pass it, is in seconds. Only an EC P-256 key whose `use` is `ckrets-event` is accepted. Anything
+malformed or missing is `{"ok": False, "why": ...}`; it never raises.

@@ -37,7 +37,7 @@ jobs:
         env: { CKRETS_TEST_BASE_URL: '${{ vars.CKRETS_STAGING_URL }}' }
         run: |
           [ -n "$CKRETS_TEST_BASE_URL" ] || { echo "REFUSED: set the repository variable CKRETS_STAGING_URL (ckapi-staging's door)"; exit 3; }
-          pip install -q "cryptography>=42" "build==1.2.2" && npm ci --no-audit --no-fund && npm test
+          pip install -q "cryptography>=42" "build==1.2.2" && npm ci --no-audit --no-fund && npm run test:api
       - name: The quickstart from a fresh install, against production's door
         run: bash scripts/quickstart.sh https://ckrets.ai
 

@@ -295,6 +295,131 @@ def _sign(method, url, body, jwk):
     return {**extra, "signature-input": f"sig1={params}", "signature": f"sig1=:{base64.b64encode(sig).decode()}:"}
 
 
+_WEBHOOK_COMPONENTS = ["@method", "@target-uri", "content-digest", "content-type", "webhook-id"]
+_SIG_INPUT = re.compile(r'sig1=(\(([^()]*)\);created=([0-9]{1,12});expires=([0-9]{1,12});keyid="([^"]+)";alg="([^"]+)";tag="([^"]+)")')
+_SIG = re.compile(r"sig1=:([A-Za-z0-9+/]{86}==):")  # 64 bytes: r || s, 32 each
+
+
+class _Refused(Exception):
+    pass
+
+
+def _webhook_headers(headers):
+    h = {}
+    for k, v in (headers.items() if headers is not None and hasattr(headers, "items") else []):
+        if v is None:
+            continue  # an absent value is a missing header
+        n = str(k).lower()
+        if n in h:
+            raise _Refused("a header appears twice")
+        h[n] = ", ".join(str(x) for x in v) if isinstance(v, (list, tuple)) else str(v)
+    return h
+
+
+def _webhook_key(jwks, kid):
+    from cryptography.hazmat.primitives.asymmetric import ec
+    keys = jwks.get("keys") if isinstance(jwks, dict) else None
+    key = next((k for k in (keys if isinstance(keys, list) else []) if isinstance(k, dict) and k.get("kid") == kid and k.get("use") == "ckrets-event"), None)
+    if key is None:
+        raise _Refused("no ckrets-event key with that kid")
+    bad = "the ckrets-event key is not a valid EC P-256 key"
+    if key.get("kty") != "EC" or key.get("crv") != "P-256" or not isinstance(key.get("x"), str) or not isinstance(key.get("y"), str):
+        raise _Refused(bad)
+    try:
+        x, y = (base64.b64decode(key[c] + "=" * (-len(key[c]) % 4), altchars=b"-_", validate=True) for c in ("x", "y"))
+        if len(x) != 32 or len(y) != 32:
+            raise ValueError
+        return ec.EllipticCurvePublicNumbers(int.from_bytes(x, "big"), int.from_bytes(y, "big"), ec.SECP256R1()).public_key()
+    except (ValueError, TypeError):
+        raise _Refused(bad) from None
+
+
+def verify_webhook(url, headers, body, jwks, method="POST", now=None, max_age=300, skew=60):
+    """ckrets webhooks (preview): check a delivery before acting on it. RFC 9421 (ecdsa-p256-sha256, tag ckrets-webhook)
+    over @method, @target-uri, content-digest, content-type and webhook-id, by the EC P-256 JWKS key whose use is
+    ckrets-event (never the receipt key); the body matches content-digest; created at most max_age seconds old and not in
+    the future; webhook-id is the event's id. Dedupe on the returned webhook_id yourself: delivery is at least once.
+
+    url is the endpoint you configured, as a string, never rebuilt from the request's Host header. headers is any mapping
+    with items() (any case). body is the raw body bytes as received, before any JSON parsing. jwks is the parsed
+    /.well-known/jwks.json of the origin you expect (fetch and cache it). now is in seconds (time.time()); the helper's
+    is in milliseconds. Returns {"ok": True, "webhook_id", "event"} or {"ok": False, "why"}; it never raises."""
+    try:
+        return _verify_webhook(url, headers, body, jwks, method, now, max_age, skew)
+    except _Refused as e:
+        return {"ok": False, "why": str(e)}
+    except Exception:  # fail closed: anything malformed is a refusal, never an exception
+        return {"ok": False, "why": "malformed input"}
+
+
+def _no_constant(name):
+    raise ValueError(f"{name} is not JSON")
+
+
+def _verify_webhook(url, headers, body, jwks, method, now, max_age, skew):
+    from cryptography.exceptions import InvalidSignature
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
+    no = lambda why: {"ok": False, "why": why}
+    if not isinstance(url, str) or not url:
+        return no("url must be the endpoint you configured, as a string")
+    import math
+    finite = lambda x: isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x)
+    if not isinstance(method, str) or not all(finite(x) for x in (max_age, skew)) or max_age < 0 or skew < 0 or (now is not None and not finite(now)):
+        return no("malformed input")  # a NaN window would let anything through
+    if isinstance(body, str):
+        raw = body.encode("utf-8")
+    elif isinstance(body, (bytes, bytearray, memoryview)):
+        raw = bytes(body)
+    else:
+        return no("body must be the raw bytes as received (bytes or str)")
+    h = _webhook_headers(headers)
+    m = _SIG_INPUT.fullmatch(h.get("signature-input", ""))
+    if not m:
+        return no("no ckrets Signature-Input")
+    sp, comps, created, expires, keyid, alg, tag = m.groups()
+    created, expires = int(created), int(expires)
+    now_s = int(time.time() if now is None else now)
+    if alg != "ecdsa-p256-sha256" or tag != "ckrets-webhook" or comps != " ".join(f'"{c}"' for c in _WEBHOOK_COMPONENTS):
+        return no("unexpected algorithm, tag or components")
+    for c in _WEBHOOK_COMPONENTS[2:]:
+        if not h.get(c):
+            return no(f"missing header: {c}")
+    if any(("\r" in v or "\n" in v) for v in (url, method, h["content-digest"], h["content-type"], h["webhook-id"])):
+        return no("a covered value has a line break")
+    if created > now_s + skew:
+        return no("created is in the future (a clock far off)")
+    if now_s - created > max_age:
+        return no("too old (a replay, or a clock far off)")
+    if expires < now_s - skew:
+        return no("expired")
+    if h["content-digest"] != "sha-256=:" + base64.b64encode(hashlib.sha256(raw).digest()).decode() + ":":
+        return no("the body does not match content-digest")
+    pub = _webhook_key(jwks, keyid)
+    sm = _SIG.fullmatch(h.get("signature", ""))
+    if not sm:
+        return no("no sig1 Signature")
+    rs = base64.b64decode(sm.group(1), validate=True)
+    if len(rs) != 64:
+        return no("no sig1 Signature")
+    v = {"@method": method.upper(), "@target-uri": url, "content-digest": h["content-digest"], "content-type": h["content-type"], "webhook-id": h["webhook-id"]}
+    base = "\n".join(f'"{c}": {v[c]}' for c in _WEBHOOK_COMPONENTS) + f'\n"@signature-params": {sp}'
+    try:
+        pub.verify(encode_dss_signature(int.from_bytes(rs[:32], "big"), int.from_bytes(rs[32:], "big")), base.encode(), ec.ECDSA(hashes.SHA256()))
+    except InvalidSignature:
+        return no("the signature does not verify")
+    try:
+        event = json.loads(raw.decode("utf-8"), parse_constant=_no_constant)  # strict UTF-8, no NaN or Infinity: as in JS
+    except ValueError:
+        event = None
+    if not isinstance(event, dict):
+        return no("the body is not a JSON object")
+    if event.get("id") != h["webhook-id"]:
+        return no("webhook-id is not the event id")
+    return {"ok": True, "webhook_id": h["webhook-id"], "event": event}
+
+
 # ---- HPKE open (RFC 9180, base mode) for hpke.v1: DHKEM(X25519, HKDF-SHA256), HKDF-SHA256, AES-256-GCM, info "ckrets wrap v1"
 _KEM_ID = b"KEM" + (0x0020).to_bytes(2, "big")
 _HPKE_ID = b"HPKE" + (0x0020).to_bytes(2, "big") + (0x0001).to_bytes(2, "big") + (0x0002).to_bytes(2, "big")

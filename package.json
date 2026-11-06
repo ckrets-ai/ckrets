@@ -1,13 +1,14 @@
 {
   "name": "ckrets-clients",
   "private": true,
-  "description": "The ckrets.ai client packages (@ckrets/helper, @ckrets/mcp, ckrets on PyPI) and the MCP registry entry. Unpublished: private until the maintainers' go; tested against a ckrets API (CKRETS_TEST_BASE_URL or CKRETS_API_DIR).",
+  "description": "The ckrets.ai client packages (@ckrets/helper, @ckrets/mcp, ckrets on PyPI) and the MCP registry entry. Unpublished: private until the maintainers' go; npm test needs no API; npm run test:api runs against a ckrets API (CKRETS_TEST_BASE_URL or CKRETS_API_DIR).",
   "workspaces": [
     "helper",
     "mcp"
   ],
   "scripts": {
-    "test": "node --test \"test/**/*.test.js\""
+    "test": "node --test test/hpke.test.js test/webhook.test.js",
+    "test:api": "node --test \"test/**/*.test.js\""
   },
   "engines": {
     "node": ">=22"
