@@ -61,7 +61,7 @@ trusted publisher, from GitHub's OIDC token): no registry token exists.
 ## Security
 
 Report a vulnerability privately through this repository's **Security** tab ("Report a vulnerability"), not in a
-public issue.
+public issue. Scope and what to expect: [SECURITY.md](SECURITY.md).
 
 ## Licence
 
