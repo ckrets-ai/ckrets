@@ -1,0 +1,18 @@
+{
+  "name": "ckrets-clients",
+  "private": true,
+  "description": "The ckrets.ai client packages (@ckrets/helper, @ckrets/mcp, ckrets on PyPI) and the MCP registry entry. Unpublished: private until the maintainers' go; tested against a ckrets API (CKRETS_TEST_BASE_URL or CKRETS_API_DIR).",
+  "workspaces": [
+    "helper",
+    "mcp"
+  ],
+  "scripts": {
+    "test": "node --test \"test/**/*.test.js\""
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1"
+  }
+}

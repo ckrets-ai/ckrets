@@ -1,0 +1,90 @@
+# Publishes @ckrets/helper and @ckrets/mcp to npm and ckrets to
+# PyPI by trusted publishing: GitHub's OIDC token is the only credential (npm trusted publisher with provenance; PyPI
+# trusted publisher, which names environment "pypi" and this file). No npm or PyPI token exists anywhere.
+#
+# OFF: it runs only by hand (workflow_dispatch), only when the repository variable CKRETS_PUBLISH is 'on', and it refuses
+# while any package is still marked private ("private": true, "Private :: Do Not Upload"), so a publish also needs a
+# deliberate commit removing those marks on launch day. Each publishing job runs in its own environment ("release" for
+# npm, "pypi" for PyPI) and checks first that the environment requires the maintainer's review, failing closed.
+#
+# Before anything is uploaded: the tests run against ckapi-staging (CKRETS_STAGING_URL, the same code as
+# production), then the quickstart runs from a fresh install of the packed packages against production's door
+# (https://ckrets.ai), so a publish never goes out against staging alone, and never before production exists.
+# The MCP registry entry (registry/server.json) is published after this, with mcp-publisher, once ckrets.ai's namespace
+# is verified. Nothing has been uploaded: the PyPI name holds a 0.0.0 placeholder, and the first real release is 0.9.0 (the beta).
+name: Publish
+on: workflow_dispatch
+permissions: { contents: read }
+concurrency: { group: publish, cancel-in-progress: false }
+jobs:
+  test:
+    if: vars.CKRETS_PUBLISH == 'on'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions: { contents: read }
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262   # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020   # v4.4.0
+        with: { node-version: 22 }
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1   # v6.3.0
+        with: { python-version: '3.12' }
+      - name: Refuse while any package is still marked private
+        run: |
+          node -e 'for (const p of ["helper","mcp"]) if (require(`./${p}/package.json`).private) { console.error(`REFUSED: ${p} is still private`); process.exit(3); }'
+          ! grep -q 'Private :: Do Not Upload' python/pyproject.toml || { echo "REFUSED: the Python package is still marked private"; exit 3; }
+          v=$(node -p 'require("./helper/package.json").version'); [ "$v" != 0.0.0 ] || { echo "REFUSED: 0.0.0 is the PyPI placeholder; the first release is 0.9.0"; exit 3; }
+      - name: The tests, against ckapi-staging
+        env: { CKRETS_TEST_BASE_URL: '${{ vars.CKRETS_STAGING_URL }}' }
+        run: |
+          [ -n "$CKRETS_TEST_BASE_URL" ] || { echo "REFUSED: set the repository variable CKRETS_STAGING_URL (ckapi-staging's door)"; exit 3; }
+          pip install -q "cryptography>=42" "build==1.2.2" && npm ci --no-audit --no-fund && npm test
+      - name: The quickstart from a fresh install, against production's door
+        run: bash scripts/quickstart.sh https://ckrets.ai
+
+  npm:
+    needs: test
+    if: vars.CKRETS_PUBLISH == 'on'
+    environment: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions: { id-token: write, contents: read, actions: read }
+    steps:
+      - name: Fail closed unless "release" requires the maintainer's review
+        env: { GH_TOKEN: '${{ github.token }}', REVIEWER: "${{ vars.CKRETS_RELEASE_REVIEWER }}", ENV_NAME: release }
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/environments/$ENV_NAME" --jq '[.protection_rules[]? | select(.type=="required_reviewers") | .reviewers[]?.reviewer.login] | join(" ")' > "$RUNNER_TEMP/reviewers"
+          [ -n "$REVIEWER" ] || { echo "REFUSED: set the repository variable CKRETS_RELEASE_REVIEWER (the GitHub login whose review a release needs)"; exit 3; }
+          grep -qw -- "$REVIEWER" "$RUNNER_TEMP/reviewers" || { echo "REFUSED: the environment '$ENV_NAME' has no required review by $REVIEWER"; exit 3; }
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262   # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020   # v4.4.0
+        with: { node-version: 22, registry-url: 'https://registry.npmjs.org' }
+      - name: npm, trusted publishing with provenance under @ckrets (npm 11.5.1 or later)
+        run: |
+          npm install -g "npm@^11.5.1"
+          for w in helper mcp; do
+            case "$(node -p "require('./$w/package.json').name")" in @ckrets/*) ;; *) echo "REFUSED: $w is not under @ckrets"; exit 3 ;; esac
+          done
+          npm publish --workspace helper --access public --provenance
+          npm publish --workspace mcp --access public --provenance
+
+  pypi:
+    needs: npm
+    if: vars.CKRETS_PUBLISH == 'on'
+    environment: pypi
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions: { id-token: write, contents: read, actions: read }
+    steps:
+      - name: Fail closed unless "pypi" requires the maintainer's review
+        env: { GH_TOKEN: '${{ github.token }}', REVIEWER: "${{ vars.CKRETS_RELEASE_REVIEWER }}", ENV_NAME: pypi }
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/environments/$ENV_NAME" --jq '[.protection_rules[]? | select(.type=="required_reviewers") | .reviewers[]?.reviewer.login] | join(" ")' > "$RUNNER_TEMP/reviewers"
+          [ -n "$REVIEWER" ] || { echo "REFUSED: set the repository variable CKRETS_RELEASE_REVIEWER (the GitHub login whose review a release needs)"; exit 3; }
+          grep -qw -- "$REVIEWER" "$RUNNER_TEMP/reviewers" || { echo "REFUSED: the environment '$ENV_NAME' has no required review by $REVIEWER"; exit 3; }
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262   # v4.4.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1   # v6.3.0
+        with: { python-version: '3.12' }
+      - name: Build the Python package
+        run: pip install -q "build==1.2.2" && python -m build python --outdir python/dist
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086   # v1.14.3
+        with: { packages-dir: python/dist }

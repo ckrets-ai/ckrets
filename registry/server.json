@@ -1,0 +1,48 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
+  "name": "ai.ckrets/ckrets",
+  "title": "ckrets",
+  "description": "One-time secret tokens for agents: create a token and URL that reveal a value once; status, revoke, limits; deliver into an env var or a 0600 file, never into the conversation.",
+  "version": "0.9.0",
+  "websiteUrl": "https://ckrets.ai",
+  "repository": {
+    "url": "https://github.com/ckrets-ai/ckrets",
+    "source": "github"
+  },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://ckrets.ai/mcp"
+    }
+  ],
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@ckrets/mcp",
+      "version": "0.9.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "CKRETS_KEY",
+          "description": "A ckrets key or lease (ck_live_…); without it, the anonymous tier",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "CKRETS_SINKS",
+          "description": "Where deliver_secret may write: env:NAME, file:/path or file:/dir/, comma-separated",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "CKRETS_ALLOW_REVEAL_IN_CONTEXT",
+          "description": "true lists reveal_secret, which returns a value into the conversation (off by default; prefer deliver_secret)",
+          "isRequired": false,
+          "isSecret": false
+        }
+      ]
+    }
+  ]
+}

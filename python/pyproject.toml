@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ckrets"
+version = "0.9.0"
+description = "ckrets.ai from Python: create a one-time secret token, and reveal one into a process, a file or stdout"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+classifiers = ["Private :: Do Not Upload"]   # unpublished until the maintainers' go ; PyPI refuses this classifier
+dependencies = ["cryptography>=42"]   # the one runtime dependency: create and request encrypt on this machine by default 
+
+[project.optional-dependencies]
+crypto = ["cryptography>=42"]   # an alias kept so docs that say ckrets[crypto] still work; cryptography is a base dependency
+
+[project.scripts]
+ckrets = "ckrets.__main__:main"
+
+[project.urls]
+Homepage = "https://ckrets.ai/for-agents.md"
+Source = "https://github.com/ckrets-ai/ckrets"

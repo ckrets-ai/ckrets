@@ -1,0 +1,15 @@
+{
+  "name": "@ckrets/mcp",
+  "version": "0.9.0",
+  "description": "The ckrets.ai MCP server over stdio: create, status, revoke, limits, and deliver_secret into a sink you configure",
+  "private": true,
+  "license": "Apache-2.0",
+  "bin": { "ckrets-mcp": "bin/ckrets-mcp.js" },
+  "main": "lib/server.js",
+  "files": ["bin", "lib", "LICENSE", "NOTICE"],
+  "dependencies": { "@ckrets/helper": "0.9.0" },
+  "engines": { "node": ">=20" },
+  "mcpName": "ai.ckrets/ckrets",
+  "homepage": "https://ckrets.ai/for-agents.md",
+  "repository": { "type": "git", "url": "git+https://github.com/ckrets-ai/ckrets.git", "directory": "mcp" }
+}
