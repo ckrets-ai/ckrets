@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools==82.0.1"]   # exact; the last line that supports Python 3.9 (83 and later need 3.10)
+requires = ["setuptools==84.2.1"]   # exact; the last line that supports Python 3.9 (83 and later need 3.10)
 build-backend = "setuptools.build_meta"
 
 [project]
