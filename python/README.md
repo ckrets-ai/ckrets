@@ -1,11 +1,17 @@
 # ckrets (Python)
 
+Not on PyPI yet: until the first release, install it from the repository (`pip install ckrets` does not fetch this code
+yet).
+
 ```bash
-pip install ckrets
+git clone https://github.com/ckrets-ai/ckrets.git
+python3 -m venv .venv && .venv/bin/pip install ./ckrets/python && . .venv/bin/activate
 ckrets reveal ck_SRG73… --env DATABASE_URL -- ./deploy.sh
 ckrets reveal https://ckrets.ai/r/ck_SRG73…#k=… --file ~/.config/app/token --mode 0600
 ckrets reveal ck_SRG73… --print
 ```
+
+On Windows, activate with `.venv\Scripts\activate` (or use WSL).
 
 Send a value from a file to a named recipient (its key id, never its key):
 

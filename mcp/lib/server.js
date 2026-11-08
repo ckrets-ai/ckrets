@@ -70,7 +70,7 @@ function createServer(env = process.env) {
     if (!/^(env:[A-Z_][A-Z0-9_]*|file:.+|helper)$/.test(String(a.sink || ''))) return text('sink must be env:NAME, file:/path or helper', true);
     if (refusedSink(a.sink)) return text(`sink ${a.sink} is a loader, shell or server variable and is never a sink; nothing was revealed`, true);
     if (!allowed(a.sink)) return text(`sink ${a.sink} is not one the operator configured (CKRETS_SINKS); nothing was revealed`, true);
-    if (a.sink === 'helper') return text('the helper sink is not in this version: use env: or file:, or run npx @ckrets/helper reveal yourself; nothing was revealed', true);
+    if (a.sink === 'helper') return text('the helper sink is not in this version: use env: or file:, or run ckrets-helper reveal yourself; nothing was revealed', true);
     if (a.sink.startsWith('file:')) { const why = fileRefusal(a.sink.slice(5), false); if (why) return text(`${why}; nothing was revealed (the operator removes it first)`, true); }
     let r; try { r = await reveal(String(a.token || ''), { passphrase: a.passphrase, env: revealEnv(a.token) }); } catch (e) { return text(`ckrets: ${e.message}${e.type ? ` [${e.type}]` : ''}`, true); }
     if (a.sink.startsWith('env:')) { held[a.sink.slice(4)] = true; process.env[a.sink.slice(4)] = r.value; }

@@ -13,9 +13,6 @@ license-files = ["LICENSE", "NOTICE"]
 classifiers = ["Private :: Do Not Upload"]   # unpublished until the maintainers' go ; PyPI refuses this classifier
 dependencies = ["cryptography>=42"]   # the one runtime dependency: create and request encrypt on this machine by default 
 
-[project.optional-dependencies]
-crypto = ["cryptography>=42"]   # an alias kept so docs that say ckrets[crypto] still work; cryptography is a base dependency
-
 [project.scripts]
 ckrets = "ckrets.__main__:main"
 

@@ -22,8 +22,8 @@ const run = (cmd, args, opts) => new Promise((resolve) => { const ch = spawn(cmd
   ch.stdout.on('data', (d) => { stdout += d; }); ch.stderr.on('data', (d) => { stderr += d; }); ch.on('close', (status) => resolve({ status, stdout, stderr })); });
 const helper = (args, env = {}, input) => run(process.execPath, [HELPER, ...args], { env: { ...clean, CKRETS_BASE_URL: srv.url, ...env }, input });
 const py = (args, env = {}, input) => run('python3', ['-m', 'ckrets', ...args], { cwd: path.join(ROOT, 'python'), env: { ...clean, CKRETS_BASE_URL: srv.url, PYTHONPATH: path.join(ROOT, 'python'), ...env }, input });
-const { pythonSkip, PY_CRYPTO } = require('./python-check');
-const noPy = pythonSkip(PY_CRYPTO);   // a skip reason only when python3 or cryptography is missing; otherwise it throws
+const { pythonSkip, PY_CRYPTOGRAPHY } = require('./python-check');
+const noPy = pythonSkip(PY_CRYPTOGRAPHY);   // a skip reason only when python3 or cryptography is missing; otherwise it throws
 const echoEnv = (name) => ['--', process.execPath, '-e', `process.stdout.write(process.env.${name} || '')`];
 const ed = () => crypto.generateKeyPairSync('ed25519').privateKey.export({ format: 'jwk' });
 const jwkFile = (jwk) => { const f = path.join(TMP, `k-${crypto.randomBytes(4).toString('hex')}.jwk`); fs.writeFileSync(f, JSON.stringify(jwk), { mode: 0o600 }); return f; };

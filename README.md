@@ -30,12 +30,27 @@ ckrets always sees metadata: who created a secret, when, how big it is, and who 
 
 ## Use
 
+**The packages are not on npm or PyPI yet.** Until the first release (planned as 0.10.0, see
+[CHANGELOG.md](CHANGELOG.md)), install from this repository, as below. Do not run `npx @ckrets/...` or
+`pip install ckrets` yet: those names do not hold this code until we publish it, and a command that fetches from a
+registry runs whatever is published there.
+
 ```bash
-printf '%s' "$DB_PASSWORD" | npx -y @ckrets/helper@0.9.0 create --ttl 1h        # prints the url (with #k=), then the manage token
-npx -y @ckrets/helper@0.9.0 reveal - --env DATABASE_URL -- ./deploy.sh            # the url on stdin; the child process gets the value
-npx -y @ckrets/mcp@0.9.0                                                           # the MCP server over stdio
-pip install ckrets && ckrets reveal - --file ~/.config/app/token --mode 0600
+git clone https://github.com/ckrets-ai/ckrets.git && cd ckrets
+git checkout <commit>                     # optional: a commit you have reviewed, rather than whatever main is today
+npm ci --ignore-scripts --omit=dev        # links ckrets-helper and ckrets-mcp into node_modules/.bin; fetches nothing
+export PATH="$PWD/node_modules/.bin:$PATH"
+
+printf '%s' "$DB_PASSWORD" | ckrets-helper create --ttl 1h        # prints the url (with #k=), then the manage token
+ckrets-helper reveal - --env DATABASE_URL -- ./deploy.sh            # the url on stdin; the child process gets the value
+echo "$PWD/mcp/bin/ckrets-mcp.js"   # the MCP server over stdio: give your MCP client `node` and this absolute path
+
+python3 -m venv .venv && .venv/bin/pip install ./python            # the Python client and its ckrets command
+.venv/bin/ckrets reveal - --file ~/.config/app/token --mode 0600
 ```
+
+On Windows, use WSL or Git Bash for the lines above, or run the same commands with `node helper\bin\ckrets-helper.js`,
+`node mcp\bin\ckrets-mcp.js`, `python -m venv .venv` and `.venv\Scripts\ckrets`.
 
 `CKRETS_KEY` is your ckrets key (optional for anonymous use), `CKRETS_BASE_URL` points elsewhere (default
 `https://ckrets.ai`), `CKRETS_SIGNING_KEY` and `CKRETS_ENC_KEY` hold the paths of your signing and X25519 key files.
@@ -44,7 +59,7 @@ Receiving ckrets webhooks (preview)? Check each delivery before acting on it, wi
 (`https://ckrets.ai/.well-known/jwks.json`, fetched and cached), then dedupe on the id (delivery is at least once):
 
 ```js
-const { verifyWebhook } = require('@ckrets/helper');
+const { verifyWebhook } = require('@ckrets/helper');   // from source: npm install /path/to/ckrets/helper first
 const r = verifyWebhook({ url: 'https://hooks.example.com/ckrets', headers: req.headers, body: rawBody, jwks });
 if (!r.ok) return res.status(401).end();   // r.why says what failed
 ```

@@ -1,9 +1,9 @@
 """ckrets.ai from Python : create, reveal, status, revoke, limits and key minting. create encrypts on this machine by
-default (needs the crypto extra, or plaintext=True); the rest is standard library only.
+default (with the cryptography package, its one dependency, or plaintext=True); the rest is standard library only.
 
 The reveal proof follows for-agents.md section 3 (CKRETS_PROOF names one; otherwise the first available):
 key (CKRETS_KEY), oidc (GitHub Actions' id token for audience https://ckrets.ai), signature (CKRETS_SIGNING_KEY, a
-private Ed25519 JWK file; needs the crypto extra). Client-encrypted values (the crypto extra): fragment.v1, and hpke.v1
+private Ed25519 JWK file; uses cryptography). Client-encrypted values (also cryptography): fragment.v1, and hpke.v1
 with the recipient's X25519 private key in CKRETS_ENC_KEY (a JWK or PEM file); pass.v1 (Argon2id) is refused by name.
 Before a reveal, the free /public view is read, so a value this client could not open is refused before it is spent.
 Every create sends an Idempotency-Key (a fresh UUID unless you pass one), so a retry after a lost answer is safe.
@@ -123,7 +123,7 @@ def create(value, ttl=None, reveals=None, passphrase=None, audience=None, purpos
                 hpke = isinstance(audience, dict) and audience.get("type") == "publicKey" and audience.get("encJwk")
                 body = {"value": _seal_value(value, K), "clientEncrypted": True, "wrappedKey": hpke_seal(audience["encJwk"], K) if hpke else "fragment.v1", **fields}
             except ImportError:
-                raise CkretsError("encrypting needs the cryptography package: pip install 'ckrets[crypto]' (or pass plaintext=True); nothing was sent") from None
+                raise CkretsError("encrypting: the cryptography package is missing; reinstall ckrets from source (see README), or pass plaintext=True; nothing was sent") from None
             k = None if hpke else _b64u(K)
         cap = 65536 if _api_key(env) else 1024
         size = len(body["value"].encode())
@@ -282,7 +282,7 @@ def _sign(method, url, body, jwk):
     try:
         from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
     except ImportError:
-        raise CkretsError("publicKey proofs need the crypto extra: pip install 'ckrets[crypto]'") from None
+        raise CkretsError("publicKey proofs: the cryptography package is missing; reinstall ckrets from source (see README)") from None
     u, now = urllib.parse.urlsplit(url), int(time.time())
     comps, lines, extra = ['"@method"', '"@authority"', '"@path"'], [f'"@method": {method}', f'"@authority": {u.netloc}', f'"@path": {u.path}'], {}
     if body is not None:
@@ -489,7 +489,7 @@ def decrypt(value, wrapped_key, k, env=None):
         try:
             from cryptography.hazmat.primitives.ciphers.aead import AESGCM
         except ImportError:
-            raise CkretsError("client-encrypted values need the crypto extra: pip install 'ckrets[crypto]'") from None
+            raise CkretsError("client-encrypted values: the cryptography package is missing; reinstall ckrets from source (see README)") from None
         _, n, c = str(value).split(".")
         try:
             return AESGCM(_unb64u(k)).decrypt(_unb64u(n), _unb64u(c), b"ckrets:v1").decode()
@@ -503,7 +503,7 @@ def decrypt(value, wrapped_key, k, env=None):
         try:
             from cryptography.hazmat.primitives.ciphers.aead import AESGCM
         except ImportError:
-            raise CkretsError("client-encrypted values need the crypto extra: pip install 'ckrets[crypto]'") from None
+            raise CkretsError("client-encrypted values: the cryptography package is missing; reinstall ckrets from source (see README)") from None
         parts = str(wrapped_key).split(".")
         if len(parts) != 4:
             raise CkretsError("hpke.v1 wrapped key is malformed")

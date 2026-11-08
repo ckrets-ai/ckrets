@@ -19,4 +19,4 @@ function pythonSkip(code, env = process.env) {
   if (env.CKRETS_REQUIRE_PYTHON === '1') throw new Error(`CKRETS_REQUIRE_PYTHON=1, but ${missing}`);
   return missing;   // a skip reason
 }
-module.exports = { pythonSkip, PY_CRYPTO: 'import cryptography', PY_HPKE: 'from cryptography.hazmat.primitives import hpke' };
+module.exports = { pythonSkip, PY_CRYPTOGRAPHY: 'import cryptography', PY_HPKE: 'from cryptography.hazmat.primitives import hpke' };

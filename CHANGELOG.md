@@ -17,7 +17,11 @@ version; until then the package files say 0.9.0, the unpublished beta. Everythin
 - Webhooks (preview): `verifyWebhook` in the helper and `verify_webhook` in Python check a ckrets webhook delivery
   (RFC 9421 signature by the issuer's EC P-256 `ckrets-event` key, body digest, a 300 s window, webhook-id). They fail
   closed: anything malformed is `{ ok: false, why }`.
-- `npm test` runs the self-contained tests with no API; `npm run test:api` runs every test against a ckrets API.
+- `deliver_secret` writes to `env:` and `file:` sinks; the `helper` sink is refused in this version.
+- SECURITY.md: report a vulnerability privately, through the repository's Security tab.
+- `npm test` runs the self-contained tests with no API; `npm run test:api` runs every test against a ckrets API. A test
+  that drives Python skips only when Python or its module is missing, and CI fails such a skip
+  (`CKRETS_REQUIRE_PYTHON=1`).
 - Contributor guide, code of conduct, issue and pull request templates, and CI, CodeQL, dependency review and OpenSSF
   Scorecard workflows.
 - The publish workflow runs only from an annotated release tag `v<version>` that points at a commit on `main` and
@@ -27,3 +31,7 @@ version; until then the package files say 0.9.0, the unpublished beta. Everythin
 ### Changed
 - The helper and the MCP server need Node 22 or later, not 20 (Node 20 is past its end of life), the same as the
   repository.
+- Development and CI tools are exact pins (the npm lockfile, every workflow action by commit SHA, npm, the Python build
+  backend), installed with `npm ci --ignore-scripts`.
+- Until the first release the README installs from source: the packages are not on npm or PyPI yet, so it shows no
+  command that fetches them from a registry.
