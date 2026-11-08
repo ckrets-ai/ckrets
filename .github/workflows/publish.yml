@@ -35,11 +35,14 @@ jobs:
           node -e 'for (const p of ["helper","mcp"]) if (require(`./${p}/package.json`).private) { console.error(`REFUSED: ${p} is still private`); process.exit(3); }'
           ! grep -q 'Private :: Do Not Upload' python/pyproject.toml || { echo "REFUSED: the Python package is still marked private"; exit 3; }
           v=$(node -p 'require("./helper/package.json").version'); [ "$v" != 0.0.0 ] || { echo "REFUSED: 0.0.0 is the PyPI placeholder; the first published release is planned as 0.10.0"; exit 3; }
-      - name: Refuse unless run from the tag v<version> on main, with every version the same exact pin
+      - name: Refuse unless run from the annotated tag v<version> on main, with every version the same exact pin
+        env: { GH_TOKEN: '${{ github.token }}' }
         run: |
           v=$(node -p 'require("./helper/package.json").version')
           [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" = "v$v" ] || { echo "REFUSED: run Publish from the tag v$v (Use workflow from: Tags), not $GITHUB_REF_TYPE $GITHUB_REF_NAME"; exit 3; }
           git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "REFUSED: the tag v$v points at $GITHUB_SHA, which is not on main: tag a commit that is on main"; exit 3; }
+          t=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$GITHUB_REF_NAME" --jq .object.type)   # from the API: a checkout can rewrite tags
+          [ "$t" = tag ] || { echo "REFUSED: v$v is a lightweight tag ($t): make it annotated (git tag -s v$v -m v$v)"; exit 3; }
           node -e '
             const fs = require("fs"), v = require("./helper/package.json").version, m = require("./mcp/package.json"), r = require("./registry/server.json");
             const py = /^version = "([^"]+)"/m.exec(fs.readFileSync("python/pyproject.toml", "utf8"))[1], pv = /^__version__ = "([^"]+)"/m.exec(fs.readFileSync("python/ckrets/__init__.py", "utf8"))[1];

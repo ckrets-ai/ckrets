@@ -7,6 +7,7 @@ const test = require('node:test'), assert = require('node:assert/strict'), crypt
 const { execFileSync } = require('child_process');
 const H = require('../helper/lib/index.js');
 const b64u = (b) => Buffer.from(b).toString('base64url');
+const LIMIT = { timeout: 30000, killSignal: 'SIGKILL' };   // a stuck child fails the test, never hangs it
 const pySeal = (pubX, K) => execFileSync('python3', ['-c', `
 import sys, base64
 from cryptography.hazmat.primitives import hpke
@@ -14,8 +15,8 @@ from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PublicKey
 u = lambda s: base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
 s = hpke.Suite(hpke.KEM.X25519, hpke.KDF.HKDF_SHA256, hpke.AEAD.AES_256_GCM)
 out = s.encrypt(u(sys.argv[2]), X25519PublicKey.from_public_bytes(u(sys.argv[1])), info=b"ckrets wrap v1")
-print(base64.urlsafe_b64encode(out).rstrip(b"=").decode())`, pubX, b64u(K)], { encoding: 'utf8' }).trim();
-let hasPy = true; try { execFileSync('python3', ['-c', 'from cryptography.hazmat.primitives import hpke']); } catch { hasPy = false; }
+print(base64.urlsafe_b64encode(out).rstrip(b"=").decode())`, pubX, b64u(K)], { encoding: 'utf8', ...LIMIT }).trim();
+let hasPy = true; try { execFileSync('python3', ['-c', 'from cryptography.hazmat.primitives import hpke'], LIMIT); } catch { hasPy = false; }
 const seal = (K, pt) => { const n = crypto.randomBytes(12), c = crypto.createCipheriv('aes-256-gcm', K, n); c.setAAD(Buffer.from('ckrets:v1'));
   return `v1.${b64u(n)}.${b64u(Buffer.concat([c.update(pt, 'utf8'), c.final(), c.getAuthTag()]))}`; };
 

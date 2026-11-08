@@ -22,7 +22,8 @@ No npm or PyPI token exists anywhere, and none is ever added to this repository.
 
 ## The workflow refuses unless
 
-- it was started from a tag `v<version>`, and the tag's commit is on `main`;
+- it was started from an annotated tag `v<version>` (`git tag -s`, not a lightweight tag), and the tag's commit is on
+  `main`;
 - that version is the same, as an exact pin (`0.10.0`, never a `^` or `~` range), in `helper/package.json`,
   `mcp/package.json` (and its dependency on `@ckrets/helper`), `registry/server.json` (both fields),
   `python/pyproject.toml` and `python/ckrets/__init__.py`;

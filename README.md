@@ -66,7 +66,7 @@ r = ckrets.verify_webhook("https://hooks.example.com/ckrets", request.headers, r
 Node 22 or later, and Python 3.9 or later with `cryptography>=42`.
 
 ```bash
-npm ci
+npm ci --ignore-scripts
 npm test                                  # the self-contained tests: no API needed
 CKRETS_TEST_BASE_URL=<a ckrets API you may test against> npm run test:api   # every test, against that API
 bash scripts/quickstart.sh <base url>     # packs, installs fresh and uses each package against that API

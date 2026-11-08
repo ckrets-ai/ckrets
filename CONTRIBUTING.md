@@ -11,10 +11,10 @@ Thank you for helping with the ckrets clients: `@ckrets/helper`, `@ckrets/mcp` a
 
 ## Develop
 
-Node 22 or later, and Python 3.9 or later with `cryptography>=42`.
+Node 22 or later (the `engines` of every package), and Python 3.9 or later with `cryptography>=42`.
 
 ```bash
-npm ci
+npm ci --ignore-scripts
 npm test                      # the self-contained tests, in JS and Python: no API needed
 ```
 
@@ -47,8 +47,9 @@ CodeQL and dependency review. Outside contributions follow exactly the same revi
 - Workflows pin every action by its full commit SHA, keep `permissions` to read-only unless a job needs more, check out
   with `persist-credentials: false`, never use `pull_request_target`, and never put `github.event` text in a `run:`
   step.
-- Dependencies are exact pins with a lockfile, installed with `npm ci --ignore-scripts`; a new version waits 7 days
-  unless a security advisory needs it sooner.
+- CI and tool dependencies are exact pins (the npm lockfile, the workflow actions and tools, the Python build backend),
+  installed with `npm ci --ignore-scripts`; a new version waits 7 days unless a security advisory needs it sooner. The
+  published packages' runtime requirements stay ranges (the helper has none; Python needs `cryptography>=42`).
 
 ## Licence
 

@@ -7,7 +7,7 @@
   "bin": { "ckrets-helper": "bin/ckrets-helper.js" },
   "main": "lib/index.js",
   "files": ["bin", "lib", "LICENSE", "NOTICE"],
-  "engines": { "node": ">=20" },
+  "engines": { "node": ">=22" },
   "homepage": "https://ckrets.ai/for-agents.md",
   "repository": { "type": "git", "url": "git+https://github.com/ckrets-ai/ckrets.git", "directory": "helper" }
 }
