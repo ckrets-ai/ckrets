@@ -2,7 +2,8 @@
 # PyPI by trusted publishing: GitHub's OIDC token is the only credential (npm trusted publisher with provenance; PyPI
 # trusted publisher, which names environment "pypi" and this file). No npm or PyPI token exists anywhere.
 #
-# OFF: it runs only by hand (workflow_dispatch), only when the repository variable CKRETS_PUBLISH is 'on', and it refuses
+# OFF: it runs only by hand (workflow_dispatch) from a release tag v<version> on main that matches every package's
+# version, each an exact pin (docs/RELEASING.md), only when the repository variable CKRETS_PUBLISH is 'on', and it refuses
 # while any package is still marked private ("private": true, "Private :: Do Not Upload"), so a publish also needs a
 # deliberate commit removing those marks on launch day. Each publishing job runs in its own environment ("release" for
 # npm, "pypi" for PyPI) and checks first that the environment requires the maintainer's review, failing closed.
@@ -11,7 +12,7 @@
 # production), then the quickstart runs from a fresh install of the packed packages against production's door
 # (https://ckrets.ai), so a publish never goes out against staging alone, and never before production exists.
 # The MCP registry entry (registry/server.json) is published after this, with mcp-publisher, once ckrets.ai's namespace
-# is verified. Nothing has been uploaded: the PyPI name holds a 0.0.0 placeholder, and the first real release is 0.9.0 (the beta).
+# is verified. Nothing has been uploaded: the PyPI name holds a 0.0.0 placeholder, and the first published release is planned as 0.10.0.
 name: Publish
 on: workflow_dispatch
 permissions: { contents: read }
@@ -23,8 +24,9 @@ jobs:
     timeout-minutes: 20
     permissions: { contents: read }
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262   # v4.4.0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020   # v4.4.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09   # v5.1.0
+        with: { persist-credentials: false, fetch-depth: 0 }   # the full history: the tag must be on main
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444   # v5.0.0
         with: { node-version: 22 }
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1   # v6.3.0
         with: { python-version: '3.12' }
@@ -32,12 +34,23 @@ jobs:
         run: |
           node -e 'for (const p of ["helper","mcp"]) if (require(`./${p}/package.json`).private) { console.error(`REFUSED: ${p} is still private`); process.exit(3); }'
           ! grep -q 'Private :: Do Not Upload' python/pyproject.toml || { echo "REFUSED: the Python package is still marked private"; exit 3; }
-          v=$(node -p 'require("./helper/package.json").version'); [ "$v" != 0.0.0 ] || { echo "REFUSED: 0.0.0 is the PyPI placeholder; the first release is 0.9.0"; exit 3; }
+          v=$(node -p 'require("./helper/package.json").version'); [ "$v" != 0.0.0 ] || { echo "REFUSED: 0.0.0 is the PyPI placeholder; the first published release is planned as 0.10.0"; exit 3; }
+      - name: Refuse unless run from the tag v<version> on main, with every version the same exact pin
+        run: |
+          v=$(node -p 'require("./helper/package.json").version')
+          [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" = "v$v" ] || { echo "REFUSED: run Publish from the tag v$v (Use workflow from: Tags), not $GITHUB_REF_TYPE $GITHUB_REF_NAME"; exit 3; }
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "REFUSED: the tag v$v points at $GITHUB_SHA, which is not on main: tag a commit that is on main"; exit 3; }
+          node -e '
+            const fs = require("fs"), v = require("./helper/package.json").version, m = require("./mcp/package.json"), r = require("./registry/server.json");
+            const py = /^version = "([^"]+)"/m.exec(fs.readFileSync("python/pyproject.toml", "utf8"))[1], pv = /^__version__ = "([^"]+)"/m.exec(fs.readFileSync("python/ckrets/__init__.py", "utf8"))[1];
+            const got = { mcp: m.version, "mcp -> helper": m.dependencies["@ckrets/helper"], registry: r.version, "registry package": r.packages[0].version, pyproject: py, __version__: pv };
+            const bad = Object.entries(got).filter(([, x]) => x !== v);
+            if (bad.length) { console.error(`REFUSED: every version field must be exactly ${v} (an exact pin: no ^ or ~ range): ${bad.map(([k, x]) => `${k} is ${x}`).join(", ")}`); process.exit(3); }'
       - name: The tests, against ckapi-staging
         env: { CKRETS_TEST_BASE_URL: '${{ vars.CKRETS_STAGING_URL }}' }
         run: |
           [ -n "$CKRETS_TEST_BASE_URL" ] || { echo "REFUSED: set the repository variable CKRETS_STAGING_URL (ckapi-staging's door)"; exit 3; }
-          pip install -q "cryptography>=42" "build==1.2.2" && npm ci --no-audit --no-fund && npm run test:api
+          pip install -q "cryptography==50.0.1" "build==1.2.2" && npm ci --no-audit --no-fund --ignore-scripts && npm run test:api
       - name: The quickstart from a fresh install, against production's door
         run: bash scripts/quickstart.sh https://ckrets.ai
 
@@ -55,12 +68,13 @@ jobs:
           gh api "repos/$GITHUB_REPOSITORY/environments/$ENV_NAME" --jq '[.protection_rules[]? | select(.type=="required_reviewers") | .reviewers[]?.reviewer.login] | join(" ")' > "$RUNNER_TEMP/reviewers"
           [ -n "$REVIEWER" ] || { echo "REFUSED: set the repository variable CKRETS_RELEASE_REVIEWER (the GitHub login whose review a release needs)"; exit 3; }
           grep -qw -- "$REVIEWER" "$RUNNER_TEMP/reviewers" || { echo "REFUSED: the environment '$ENV_NAME' has no required review by $REVIEWER"; exit 3; }
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262   # v4.4.0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020   # v4.4.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09   # v5.1.0
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444   # v5.0.0
         with: { node-version: 22, registry-url: 'https://registry.npmjs.org' }
       - name: npm, trusted publishing with provenance under @ckrets (npm 11.5.1 or later)
         run: |
-          npm install -g "npm@^11.5.1"
+          npm install -g --ignore-scripts "npm@11.21.1"   # an exact version (11.5.1 or later is needed for trusted publishing)
           for w in helper mcp; do
             case "$(node -p "require('./$w/package.json').name")" in @ckrets/*) ;; *) echo "REFUSED: $w is not under @ckrets"; exit 3 ;; esac
           done
@@ -81,7 +95,8 @@ jobs:
           gh api "repos/$GITHUB_REPOSITORY/environments/$ENV_NAME" --jq '[.protection_rules[]? | select(.type=="required_reviewers") | .reviewers[]?.reviewer.login] | join(" ")' > "$RUNNER_TEMP/reviewers"
           [ -n "$REVIEWER" ] || { echo "REFUSED: set the repository variable CKRETS_RELEASE_REVIEWER (the GitHub login whose review a release needs)"; exit 3; }
           grep -qw -- "$REVIEWER" "$RUNNER_TEMP/reviewers" || { echo "REFUSED: the environment '$ENV_NAME' has no required review by $REVIEWER"; exit 3; }
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262   # v4.4.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09   # v5.1.0
+        with: { persist-credentials: false }
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1   # v6.3.0
         with: { python-version: '3.12' }
       - name: Build the Python package

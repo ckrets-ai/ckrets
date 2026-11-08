@@ -78,8 +78,9 @@ says so. A test that starts a child process closes it in a `finally`, so a faile
 leaves `node --test` hanging. Every client sends `Ckrets-Version`, the dated API contract it was built against
 (`API_VERSION` in `helper/lib/index.js` and `python/ckrets/__init__.py`).
 
-Releases are published only from `.github/workflows/publish.yml`, by trusted publishing (npm provenance and a PyPI
-trusted publisher, from GitHub's OIDC token): no registry token exists.
+Releases are published only from `.github/workflows/publish.yml`, run from a release tag, by trusted publishing (npm
+provenance and a PyPI trusted publisher, from GitHub's OIDC token): no registry token exists. How: [docs/RELEASING.md](docs/RELEASING.md).
+Changes are listed in [CHANGELOG.md](CHANGELOG.md); to contribute, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Security
 

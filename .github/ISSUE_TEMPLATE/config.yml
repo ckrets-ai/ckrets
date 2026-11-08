@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/ckrets-ai/ckrets/security/advisories/new
+    about: Privately, never in a public issue. See SECURITY.md.
+  - name: The ckrets guide for agents
+    url: https://ckrets.ai/for-agents.md
+    about: How the API, the helper and the MCP server are meant to be used.

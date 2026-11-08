@@ -1,0 +1,18 @@
+# Keeps the pinned action SHAs and the dependencies current: weekly, grouped, one pull request per ecosystem. A new
+# version waits 7 days (cooldown) before it is proposed; security updates are not delayed.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+    cooldown: { default-days: 7 }
+    groups: { actions: { patterns: ['*'] } }
+  - package-ecosystem: npm
+    directory: /
+    schedule: { interval: weekly }
+    cooldown: { default-days: 7 }
+    groups: { npm: { patterns: ['*'] } }
+  - package-ecosystem: pip
+    directory: /python
+    schedule: { interval: weekly }
+    cooldown: { default-days: 7 }

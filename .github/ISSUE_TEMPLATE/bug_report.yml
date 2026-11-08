@@ -1,0 +1,32 @@
+name: Bug report
+description: Something in the helper, the MCP server or the Python client does not work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A security issue? Do not file it here: use the Security tab ("Report a vulnerability"). See SECURITY.md.
+        Never paste a secret value, a token, a share URL or a ckrets key in an issue.
+  - type: dropdown
+    id: package
+    attributes:
+      label: Package
+      options: ['@ckrets/helper', '@ckrets/mcp', 'ckrets (Python)']
+    validations: { required: true }
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      placeholder: 0.9.0
+    validations: { required: true }
+  - type: input
+    id: runtime
+    attributes:
+      label: Node or Python version, and OS
+      placeholder: Node 22.11, Ubuntu 24.04
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what you expected
+      description: The command you ran (with any token replaced by ck_REDACTED), its exit code and its stderr.
+    validations: { required: true }

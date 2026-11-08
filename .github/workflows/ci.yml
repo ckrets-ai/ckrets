@@ -1,0 +1,37 @@
+# Tests on every push to main and every pull request: the self-contained suite (npm test), in JS and Python, with no
+# ckrets API, on Node 22 with every Python that requires-python allows, and on Node 24. Read-only token; never
+# pull_request_target, so a fork's code never runs with this repository's permissions or secrets. Every action is
+# pinned by its full commit SHA, and the tools by exact versions.
+name: CI
+on:
+  push: { branches: [main] }
+  pull_request:
+permissions: { contents: read }
+concurrency: { group: 'ci-${{ github.ref }}', cancel-in-progress: true }
+jobs:
+  test:
+    name: 'Node ${{ matrix.node }}, Python ${{ matrix.python }}'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22]
+        python: ['3.9', '3.10', '3.11', '3.12', '3.13', '3.14']   # every version requires-python allows
+        include:
+          - { node: 24, python: '3.13' }
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09   # v5.1.0
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444   # v5.0.0
+        with: { node-version: '${{ matrix.node }}' }
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1   # v6.3.0
+        with: { python-version: '${{ matrix.python }}' }
+      - name: Install
+        run: |
+          python -m pip install -q "cryptography==50.0.1"
+          npm ci --no-audit --no-fund --ignore-scripts
+      - name: Python client compiles and imports
+        run: python -m compileall -q python/ckrets && python -I -c 'import sys; sys.path.insert(0, "python"); import ckrets, ckrets.__main__; print("ckrets", ckrets.__version__)'
+      - name: Node and Python tests (no API needed)
+        run: npm test

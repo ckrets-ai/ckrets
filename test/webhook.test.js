@@ -37,8 +37,8 @@ function py(cases) {
     + '  out.append(ckrets.verify_webhook(a.get("url"),a.get("headers"),b,a.get("jwks"),now=a["now"],**o))\n'
     + 'print(json.dumps(out))';
   const input = cases.map((a) => ({ url: a.url, headers: a.headers instanceof Map ? Object.fromEntries(a.headers) : a.headers, body: a.body == null ? null : Buffer.from(a.body).toString('base64'), jwks: a.jwks, now: a.now / 1000, ...(a.maxAgeS !== undefined ? { max_age: pyNum(a.maxAgeS) } : {}), ...(a.skewS !== undefined ? { skew: pyNum(a.skewS) } : {}) }));
-  const r = spawnSync('python3', ['-I', '-c', code, path.join(__dirname, '..', 'python')], { input: JSON.stringify(input), encoding: 'utf8' });
-  assert.equal(r.status, 0, r.stderr); return JSON.parse(r.stdout);
+  const r = spawnSync('python3', ['-I', '-c', code, path.join(__dirname, '..', 'python')], { input: JSON.stringify(input), encoding: 'utf8', timeout: 30000, killSignal: 'SIGKILL' });   // a broken check fails, never hangs
+  assert.ifError(r.error); assert.equal(r.status, 0, r.stderr); return JSON.parse(r.stdout);
 }
 
 test('a signed delivery verifies in both clients, with the event and its id', () => {

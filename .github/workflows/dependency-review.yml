@@ -1,0 +1,15 @@
+# On every pull request: refuse a change that adds a dependency with a known vulnerability (moderate or worse), or under
+# a licence outside the allow list. Read-only, no checkout needed (the action reads the change from the API); runs on
+# pull_request, never pull_request_target.
+name: Dependency review
+on: pull_request
+permissions: { contents: read }
+jobs:
+  dependency-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48   # v4.9.0
+        with:
+          fail-on-severity: moderate
+          allow-licenses: MIT, ISC, Apache-2.0, BSD-2-Clause, BSD-3-Clause, 0BSD, CC0-1.0, Unlicense, BlueOak-1.0.0, Python-2.0, PSF-2.0
