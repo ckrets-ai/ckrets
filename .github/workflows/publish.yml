@@ -2,8 +2,8 @@
 # PyPI by trusted publishing: GitHub's OIDC token is the only credential (npm trusted publisher with provenance; PyPI
 # trusted publisher, which names environment "pypi" and this file). No npm or PyPI token exists anywhere.
 #
-# OFF: it runs only by hand (workflow_dispatch) from a release tag v<version> on main that matches every package's
-# version, each an exact pin (docs/RELEASING.md), only when the repository variable CKRETS_PUBLISH is 'on', and it refuses
+# OFF: it runs only by hand (workflow_dispatch) from an annotated release tag v<version> on main that matches every
+# package's version, each an exact pin (docs/RELEASING.md), only when the repository variable CKRETS_PUBLISH is 'on', and it refuses
 # while any package is still marked private ("private": true, "Private :: Do Not Upload"), so a publish also needs a
 # deliberate commit removing those marks on launch day. Each publishing job runs in its own environment ("release" for
 # npm, "pypi" for PyPI) and checks first that the environment requires the maintainer's review, failing closed.
@@ -41,8 +41,21 @@ jobs:
           v=$(node -p 'require("./helper/package.json").version')
           [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" = "v$v" ] || { echo "REFUSED: run Publish from the tag v$v (Use workflow from: Tags), not $GITHUB_REF_TYPE $GITHUB_REF_NAME"; exit 3; }
           git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "REFUSED: the tag v$v points at $GITHUB_SHA, which is not on main: tag a commit that is on main"; exit 3; }
-          t=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$GITHUB_REF_NAME" --jq .object.type)   # from the API: a checkout can rewrite tags
-          [ "$t" = tag ] || { echo "REFUSED: v$v is a lightweight tag ($t): make it annotated (git tag -s v$v -m v$v)"; exit 3; }
+          # the tag from the API (a checkout can rewrite tags): annotated, pointing at this very commit, and any signature valid
+          ref=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$GITHUB_REF_NAME") || { echo "REFUSED: could not read the tag v$v from the API"; exit 3; }
+          [ "$(jq -r .object.type <<<"$ref")" = tag ] || { echo "REFUSED: v$v is a lightweight tag: make it annotated (git tag -a v$v -m v$v; -s also signs it)"; exit 3; }
+          tag=$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$(jq -r .object.sha <<<"$ref")") || { echo "REFUSED: could not read the tag object of v$v from the API"; exit 3; }
+          [ "$(jq -r .object.type <<<"$tag")" = commit ] && [ "$(jq -r .object.sha <<<"$tag")" = "$GITHUB_SHA" ] || { echo "REFUSED: the tag v$v does not point at the commit being run ($GITHUB_SHA)"; exit 3; }
+          # absent: GitHub gave no verification at all; a signature with no reason is refused (it falls to *)
+          why=$(jq -r 'if .verification == null then "absent" elif .verification.reason == null then (if .verification.signature then "no-reason-for-a-signature" else "absent" end) else .verification.reason end' <<<"$tag")
+          case "$why" in
+            valid) [ "$(jq -r .verification.verified <<<"$tag")" = true ] || { echo "REFUSED: v$v says valid but is not verified"; exit 3; }
+                   echo "v$v: its signature verifies" ;;
+            unsigned) echo "v$v: annotated, not signed (signing is recommended, not required)" ;;
+            absent) echo "v$v: GitHub gave no verification for the tag; treated as unsigned" ;;
+            gpgverify_unavailable|ocsp_pending|ocsp_error) echo "v$v: GitHub could not check the signature just now ($why); not refused" ;;
+            *) echo "REFUSED: v$v carries a signature that does not verify ($why)"; exit 3 ;;
+          esac
           node -e '
             const fs = require("fs"), v = require("./helper/package.json").version, m = require("./mcp/package.json"), r = require("./registry/server.json");
             const py = /^version = "([^"]+)"/m.exec(fs.readFileSync("python/pyproject.toml", "utf8"))[1], pv = /^__version__ = "([^"]+)"/m.exec(fs.readFileSync("python/ckrets/__init__.py", "utf8"))[1];
@@ -50,7 +63,7 @@ jobs:
             const bad = Object.entries(got).filter(([, x]) => x !== v);
             if (bad.length) { console.error(`REFUSED: every version field must be exactly ${v} (an exact pin: no ^ or ~ range): ${bad.map(([k, x]) => `${k} is ${x}`).join(", ")}`); process.exit(3); }'
       - name: The tests, against ckapi-staging
-        env: { CKRETS_TEST_BASE_URL: '${{ vars.CKRETS_STAGING_URL }}' }
+        env: { CKRETS_TEST_BASE_URL: '${{ vars.CKRETS_STAGING_URL }}', CKRETS_REQUIRE_PYTHON: '1' }
         run: |
           [ -n "$CKRETS_TEST_BASE_URL" ] || { echo "REFUSED: set the repository variable CKRETS_STAGING_URL (ckapi-staging's door)"; exit 3; }
           pip install -q "cryptography==50.0.1" "build==1.2.2" && npm ci --no-audit --no-fund --ignore-scripts && npm run test:api

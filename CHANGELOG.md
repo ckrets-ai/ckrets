@@ -20,6 +20,10 @@ version; until then the package files say 0.9.0, the unpublished beta. Everythin
 - `npm test` runs the self-contained tests with no API; `npm run test:api` runs every test against a ckrets API.
 - Contributor guide, code of conduct, issue and pull request templates, and CI, CodeQL, dependency review and OpenSSF
   Scorecard workflows.
-- The helper and the MCP server need Node 22 or later (Node 20 is past its end of life), the same as the repository.
-- The publish workflow runs only from a release tag `v<version>` on `main` that matches every package's version, each
-  an exact pin.
+- The publish workflow runs only from an annotated release tag `v<version>` that points at a commit on `main` and
+  matches every package's version, each an exact pin; a signature on the tag, if any, must verify (when GitHub cannot
+  check it just then, the run goes on with a note).
+
+### Changed
+- The helper and the MCP server need Node 22 or later, not 20 (Node 20 is past its end of life), the same as the
+  repository.

@@ -34,4 +34,5 @@ jobs:
       - name: Python client compiles and imports
         run: python -m compileall -q python/ckrets && python -I -c 'import sys; sys.path.insert(0, "python"); import ckrets, ckrets.__main__; print("ckrets", ckrets.__version__)'
       - name: Node and Python tests (no API needed)
+        env: { CKRETS_REQUIRE_PYTHON: '1' }   # Python is installed here, so a skipped Python case is a failure
         run: npm test

@@ -16,11 +16,12 @@ u = lambda s: base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
 s = hpke.Suite(hpke.KEM.X25519, hpke.KDF.HKDF_SHA256, hpke.AEAD.AES_256_GCM)
 out = s.encrypt(u(sys.argv[2]), X25519PublicKey.from_public_bytes(u(sys.argv[1])), info=b"ckrets wrap v1")
 print(base64.urlsafe_b64encode(out).rstrip(b"=").decode())`, pubX, b64u(K)], { encoding: 'utf8', ...LIMIT }).trim();
-let hasPy = true; try { execFileSync('python3', ['-c', 'from cryptography.hazmat.primitives import hpke'], LIMIT); } catch { hasPy = false; }
+const { pythonSkip, PY_HPKE } = require('./python-check');
+const noPyHpke = pythonSkip(PY_HPKE);   // a skip reason only when python3 or its HPKE is missing; otherwise it throws
 const seal = (K, pt) => { const n = crypto.randomBytes(12), c = crypto.createCipheriv('aes-256-gcm', K, n); c.setAAD(Buffer.from('ckrets:v1'));
   return `v1.${b64u(n)}.${b64u(Buffer.concat([c.update(pt, 'utf8'), c.final(), c.getAuthTag()]))}`; };
 
-test('hpke.v1: what Python cryptography seals, the helper opens (an independent RFC 9180 implementation)', { skip: !hasPy && 'python cryptography without HPKE' }, () => {
+test('hpke.v1: what Python cryptography seals, the helper opens (an independent RFC 9180 implementation)', { skip: noPyHpke }, () => {
   const sk = crypto.generateKeyPairSync('x25519').privateKey, pubX = crypto.createPublicKey(sk).export({ format: 'jwk' }).x;
   for (let i = 0; i < 5; i++) {
     const K = crypto.randomBytes(32), out = Buffer.from(pySeal(pubX, K), 'base64url');
@@ -28,10 +29,10 @@ test('hpke.v1: what Python cryptography seals, the helper opens (an independent 
   }
   // end to end through decrypt(), with the private key as a JWK file and as a PEM file
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ckrets-hpke-')), K = crypto.randomBytes(32), out = Buffer.from(pySeal(pubX, K), 'base64url');
-  const wk = `hpke.v1.${b64u(out.subarray(0, 32))}.${b64u(out.subarray(32))}`, value = seal(K, 'LAB_hpke_value');
+  const wk = `hpke.v1.${b64u(out.subarray(0, 32))}.${b64u(out.subarray(32))}`, value = seal(K, 'FAKE_hpke_value');
   fs.writeFileSync(path.join(dir, 'enc.jwk'), JSON.stringify(sk.export({ format: 'jwk' })), { mode: 0o600 });
   fs.writeFileSync(path.join(dir, 'enc.pem'), sk.export({ format: 'pem', type: 'pkcs8' }), { mode: 0o600 });
-  for (const f of ['enc.jwk', 'enc.pem']) assert.equal(H.decrypt(value, wk, null, { CKRETS_ENC_KEY: path.join(dir, f) }), 'LAB_hpke_value', f);
+  for (const f of ['enc.jwk', 'enc.pem']) assert.equal(H.decrypt(value, wk, null, { CKRETS_ENC_KEY: path.join(dir, f) }), 'FAKE_hpke_value', f);
   // another key, a tampered wrap, no key: refused, never a wrong value
   const other = crypto.generateKeyPairSync('x25519').privateKey; fs.writeFileSync(path.join(dir, 'other.jwk'), JSON.stringify(other.export({ format: 'jwk' })));
   assert.throws(() => H.decrypt(value, wk, null, { CKRETS_ENC_KEY: path.join(dir, 'other.jwk') }), /not the key it was sealed to/);

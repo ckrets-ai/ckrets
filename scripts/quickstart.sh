@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The done check, run by publish.yml before any upload: the packages as an agent installs them (packed, then installed
 # fresh in an empty folder), used against one ckrets API: the helper reveals a fresh secret, the Python CLI reveals
-# another, the MCP server answers initialize and lists its tools. Fake LAB_ values only; a value is compared, never printed.
+# another, the MCP server answers initialize and lists its tools. Fake values only; a value is compared, never printed.
 #   bash scripts/quickstart.sh <base url>        e.g. https://ckrets.ai (publish.yml), or an offline server's URL (the test)
 set -euo pipefail
 BASE=${1:?usage: quickstart.sh <base url>}; ROOT=$(cd "$(dirname "$0")/.." && pwd); T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
@@ -20,8 +20,8 @@ mint() { node -e '
     if (r.status === 428) { const s = j.stamp; let c = 0; while (zeros(crypto.createHash("sha256").update(`${s.nonce}:${c}`).digest()) < s.difficulty) c++; r = await send({ "ckrets-proof": `stamp=${s.nonce}:${c}` }); j = await r.json(); }
     if (r.status !== 201) { console.error(`create: ${r.status} ${j.type || ""}`); process.exit(3); } process.stdout.write(j.url); })();' "$1"; }
 check() { [ "$2" = "$3" ] && echo "ok   $1" || { echo "FAIL $1: the revealed value differs"; exit 1; }; }
-v1=LAB_$(openssl rand -hex 8); u1=$(mint "$v1"); check "helper reveal (npm, fresh install)" "$(node_modules/.bin/ckrets-helper reveal "$u1" --print)" "$v1"
-v2=LAB_$(openssl rand -hex 8); u2=$(mint "$v2"); check "ckrets reveal (PyPI, fresh install)" "$(v/bin/ckrets reveal "$u2" --print)" "$v2"
+v1=FAKE_$(openssl rand -hex 8); u1=$(mint "$v1"); check "helper reveal (npm, fresh install)" "$(node_modules/.bin/ckrets-helper reveal "$u1" --print)" "$v1"
+v2=FAKE_$(openssl rand -hex 8); u2=$(mint "$v2"); check "ckrets reveal (PyPI, fresh install)" "$(v/bin/ckrets reveal "$u2" --print)" "$v2"
 tools=$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"quickstart","version":"0"}}}' \
   '{"jsonrpc":"2.0","method":"notifications/initialized"}' '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' \
   | timeout 30 node_modules/.bin/ckrets-mcp | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const m=s.trim().split("\n").map(JSON.parse).find(x=>x.id===2);process.stdout.write(((m&&m.result&&m.result.tools)||[]).map(t=>t.name).join(","))})' || true)

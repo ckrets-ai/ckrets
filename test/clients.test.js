@@ -1,14 +1,14 @@
 'use strict';
 // Offline: the three packages against products/ckrets-api's offline server (scripts/serve.js), as an agent's host
 // would run them. The value reaches only the sink asked for; refusals are exit 3 with the problem type; a sink the
-// operator did not configure is refused before anything is revealed. Fake LAB_ values only.
+// operator did not configure is refused before anything is revealed. Fake values only.
 const test = require('node:test'), assert = require('node:assert/strict'), fs = require('fs'), path = require('path'), os = require('os'), crypto = require('crypto');
-const { spawn, spawnSync } = require('child_process');
+const { spawn } = require('child_process');
 const { apiUnderTest } = require('./api-under-test');   // the API: CKRETS_TEST_BASE_URL or a ckrets-api checkout
 
 const ROOT = path.join(__dirname, '..'), HELPER = path.join(ROOT, 'helper', 'bin', 'ckrets-helper.js'), MCP = path.join(ROOT, 'mcp', 'bin', 'ckrets-mcp.js');
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'ckrets-clients-'));
-const lab = () => `LAB_${crypto.randomBytes(8).toString('hex')}`;
+const fake = () => `FAKE_${crypto.randomBytes(8).toString('hex')}`;
 const clean = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(CKRETS_|ACTIONS_ID_TOKEN_)/.test(k)));
 let srv, sender;
 const api = async (method, p, body, bearer) => {
@@ -22,7 +22,8 @@ const run = (cmd, args, opts) => new Promise((resolve) => { const ch = spawn(cmd
   ch.stdout.on('data', (d) => { stdout += d; }); ch.stderr.on('data', (d) => { stderr += d; }); ch.on('close', (status) => resolve({ status, stdout, stderr })); });
 const helper = (args, env = {}, input) => run(process.execPath, [HELPER, ...args], { env: { ...clean, CKRETS_BASE_URL: srv.url, ...env }, input });
 const py = (args, env = {}, input) => run('python3', ['-m', 'ckrets', ...args], { cwd: path.join(ROOT, 'python'), env: { ...clean, CKRETS_BASE_URL: srv.url, PYTHONPATH: path.join(ROOT, 'python'), ...env }, input });
-const hasPy = spawnSync('python3', ['-c', 'import cryptography'], { encoding: 'utf8' }).status === 0;
+const { pythonSkip, PY_CRYPTO } = require('./python-check');
+const noPy = pythonSkip(PY_CRYPTO);   // a skip reason only when python3 or cryptography is missing; otherwise it throws
 const echoEnv = (name) => ['--', process.execPath, '-e', `process.stdout.write(process.env.${name} || '')`];
 const ed = () => crypto.generateKeyPairSync('ed25519').privateKey.export({ format: 'jwk' });
 const jwkFile = (jwk) => { const f = path.join(TMP, `k-${crypto.randomBytes(4).toString('hex')}.jwk`); fs.writeFileSync(f, JSON.stringify(jwk), { mode: 0o600 }); return f; };
@@ -32,11 +33,11 @@ function fragmentSeal(plain) {   // /docs/client-encryption.md "The value", frag
   return { value: `v1.${N.toString('base64url')}.${ct.toString('base64url')}`, k: K.toString('base64url') };
 }
 
-test.before(async () => { srv = await apiUnderTest(); sender = await mint('LAB clients sender'); });
+test.before(async () => { srv = await apiUnderTest(); sender = await mint('FAKE clients sender'); });
 test.after(() => { if (srv) srv.server.close(); fs.rmSync(TMP, { recursive: true, force: true }); });
 
 test('helper: --env gives the value to the child only; the transcript side sees the digest; a second reveal is exit 3 token-gone', async () => {
-  const v = lab(), c = await create({ value: v });
+  const v = fake(), c = await create({ value: v });
   const r = (await helper(['reveal', c.url, '--env', 'DB_PASSWORD', ...echoEnv('DB_PASSWORD')]));
   assert.equal(r.status, 0, r.stderr); assert.equal(r.stdout, v, 'the child got it');
   assert.ok(!r.stderr.includes(v), 'never on stderr'); assert.match(r.stderr, /revealed hmac-sha256:[\w-]{43} \(0 reveals left\), into DB_PASSWORD/);
@@ -45,7 +46,7 @@ test('helper: --env gives the value to the child only; the transcript side sees 
 });
 
 test('helper: --file only with an explicit --mode; the value reaches stdout only with --print; usage errors spend nothing', async () => {
-  const v = lab(), c = await create({ value: v, reveals: 3 }), f = path.join(TMP, 'token');
+  const v = fake(), c = await create({ value: v, reveals: 3 }), f = path.join(TMP, 'token');
   for (const bad of [['reveal', c.token], ['reveal', c.token, '--env', 'X'], ['reveal', c.token, '--print', '--file', f], ['reveal', c.token, '--file', f, '--mode', '644'], ['reveal', c.token, '--env', 'bad-name', '--', 'true'], ['reveal', c.token, '--file', f], ['reveal', c.token, '--print', '--mode', '0600']])
     assert.equal((await helper(bad)).status, 2, bad.join(' '));
   assert.ok(!fs.existsSync(f), 'no file without --mode');
@@ -57,16 +58,16 @@ test('helper: --file only with an explicit --mode; the value reaches stdout only
 
 const left = async (c) => (await api('GET', `/v1/secrets/${c.token}/status`, null, c.manageToken)).j.revealsLeft;
 async function fileRules(cli, label) {   // shared by the helper and the Python command
-  const v = lab(), c = await create({ value: v, reveals: 4 }), d = fs.mkdtempSync(path.join(TMP, `${label}-`));
-  const old = path.join(d, 'old'); fs.writeFileSync(old, 'LAB_previous', { mode: 0o644 }); fs.chmodSync(old, 0o644);
+  const v = fake(), c = await create({ value: v, reveals: 4 }), d = fs.mkdtempSync(path.join(TMP, `${label}-`));
+  const old = path.join(d, 'old'); fs.writeFileSync(old, 'FAKE_previous', { mode: 0o644 }); fs.chmodSync(old, 0o644);
   const keep = await cli(['reveal', c.token, '--file', old, '--mode', '0600']);
-  assert.equal(keep.status, 4, keep.stderr); assert.match(keep.stderr, /exists: refused .*nothing was revealed/); assert.equal(fs.readFileSync(old, 'utf8'), 'LAB_previous'); assert.equal(await left(c), 4, 'nothing spent');
+  assert.equal(keep.status, 4, keep.stderr); assert.match(keep.stderr, /exists: refused .*nothing was revealed/); assert.equal(fs.readFileSync(old, 'utf8'), 'FAKE_previous'); assert.equal(await left(c), 4, 'nothing spent');
   const forced = await cli(['reveal', c.token, '--file', old, '--mode', '0600', '--force']);
   assert.equal(forced.status, 0, forced.stderr); assert.equal(fs.readFileSync(old, 'utf8'), v); assert.equal(fs.statSync(old).mode & 0o777, 0o600, 'the old, looser mode does not survive');
-  const target = path.join(d, 'target'), link = path.join(d, 'link'); fs.writeFileSync(target, 'LAB_untouched'); fs.symlinkSync(target, link);
+  const target = path.join(d, 'target'), link = path.join(d, 'link'); fs.writeFileSync(target, 'FAKE_untouched'); fs.symlinkSync(target, link);
   for (const extra of [[], ['--force']]) {
     const r = await cli(['reveal', c.token, '--file', link, '--mode', '0600', ...extra]);
-    assert.equal(r.status, 4); assert.match(r.stderr, /symbolic link: refused/); assert.equal(fs.readFileSync(target, 'utf8'), 'LAB_untouched');
+    assert.equal(r.status, 4); assert.match(r.stderr, /symbolic link: refused/); assert.equal(fs.readFileSync(target, 'utf8'), 'FAKE_untouched');
   }
   assert.equal(await left(c), 3, 'the refusals spent nothing');
   const tight = path.join(d, 'new'); process.umask(0o022);
@@ -76,41 +77,41 @@ async function fileRules(cli, label) {   // shared by the helper and the Python 
 test('helper: --file creates exclusively at the mode, never through a symlink, an existing file only with --force; no --key', () => fileRules(helper, 'h'));
 
 test('helper: reveal - takes the token or share URL (with its #k=) on stdin, out of the process list; the old CKRETS_API_KEY still works as an undocumented fallback', async () => {
-  const v = lab(), s = fragmentSeal(v), c = await create({ value: s.value, client_encrypted: true, wrapped_key: 'fragment.v1' });
+  const v = fake(), s = fragmentSeal(v), c = await create({ value: s.value, client_encrypted: true, wrapped_key: 'fragment.v1' });
   const r = await helper(['reveal', '-', '--print'], {}, `${c.url}#k=${s.k}\n`); assert.equal(r.status, 0, r.stderr); assert.equal(r.stdout, v);
   assert.equal((await helper(['reveal', '-', '--print'], {}, '')).status, 2);
-  const R = await mint('LAB clients alias'), ck = await create({ value: v, audience: { type: 'key', id: R.keyId } });
+  const R = await mint('FAKE clients alias'), ck = await create({ value: v, audience: { type: 'key', id: R.keyId } });
   assert.equal((await helper(['reveal', ck.token, '--print'], { CKRETS_API_KEY: R.key })).stdout, v);
 });
 
 test('helper: the audience proofs: CKRETS_KEY for a key audience, CKRETS_SIGNING_KEY (RFC 9421) for a publicKey audience; the wrong one is 403', async () => {
-  const R = await mint('LAB clients recipient'), O = await mint('LAB clients other');
-  const ck = await create({ value: lab(), audience: { type: 'key', id: R.keyId } });
+  const R = await mint('FAKE clients recipient'), O = await mint('FAKE clients other');
+  const ck = await create({ value: fake(), audience: { type: 'key', id: R.keyId } });
   const wrong = (await helper(['reveal', ck.token, '--print'], { CKRETS_KEY: O.key }));
   assert.equal(wrong.status, 3); assert.match(wrong.stderr, /\[audience-mismatch\]/);
   await new Promise((r) => setTimeout(r, 2200));   // the reveal cooldown after a denial
   assert.equal((await helper(['reveal', ck.token, '--print'], { CKRETS_KEY: R.key })).status, 0);
-  const P = ed(), v = lab(), cp = await create({ value: v, audience: { type: 'publicKey', jwk: { kty: 'OKP', crv: 'Ed25519', x: P.x } } });
+  const P = ed(), v = fake(), cp = await create({ value: v, audience: { type: 'publicKey', jwk: { kty: 'OKP', crv: 'Ed25519', x: P.x } } });
   const r = (await helper(['reveal', cp.token, '--print'], { CKRETS_SIGNING_KEY: jwkFile(P) }));
   assert.equal(r.status, 0, r.stderr); assert.equal(r.stdout, v); assert.match(r.stderr, /proof: signature/);
-  const pass = await create({ value: v, passphrase: 'LAB-corvid' });
-  assert.equal((await helper(['reveal', pass.token, '--print', '--passphrase-env', 'PP'], { PP: 'LAB-corvid' })).stdout, v, 'a passphrase from an env var, never argv');
+  const pass = await create({ value: v, passphrase: 'FAKE-corvid' });
+  assert.equal((await helper(['reveal', pass.token, '--print', '--passphrase-env', 'PP'], { PP: 'FAKE-corvid' })).stdout, v, 'a passphrase from an env var, never argv');
 });
 
 test('helper: inside GitHub Actions it asks for the job\'s OIDC token with audience https://ckrets.ai and sends it as the bearer', async () => {
   const http = require('http'); let asked = null;
   const gh = http.createServer((q, s) => { asked = { url: q.url, auth: q.headers.authorization }; s.end(JSON.stringify({ value: 'eyJhbGciOiJSUzI1NiJ9.eyJpc3MiOiJ4In0.c2ln' })); });
   await new Promise((r) => gh.listen(0, r));
-  const c = await create({ value: lab(), audience: { type: 'oidc', issuer: 'https://token.actions.githubusercontent.com', claims: { repository: 'example-org/example', ref: 'refs/heads/main' } } });
-  const r = await new Promise((resolve) => { const ch = spawn(process.execPath, [HELPER, 'reveal', c.token, '--print'], { env: { ...clean, CKRETS_BASE_URL: srv.url, ACTIONS_ID_TOKEN_REQUEST_URL: `http://localhost:${gh.address().port}/token?x=1`, ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'LAB-request-token' } });
+  const c = await create({ value: fake(), audience: { type: 'oidc', issuer: 'https://token.actions.githubusercontent.com', claims: { repository: 'example-org/example', ref: 'refs/heads/main' } } });
+  const r = await new Promise((resolve) => { const ch = spawn(process.execPath, [HELPER, 'reveal', c.token, '--print'], { env: { ...clean, CKRETS_BASE_URL: srv.url, ACTIONS_ID_TOKEN_REQUEST_URL: `http://localhost:${gh.address().port}/token?x=1`, ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'FAKE-request-token' } });
     let err = ''; ch.stderr.on('data', (d) => { err += d; }); ch.on('exit', (code) => resolve({ code, err })); });
   gh.close();
-  assert.equal(asked.url, '/token?x=1&audience=https%3A%2F%2Fckrets.ai'); assert.equal(asked.auth, 'bearer LAB-request-token');
+  assert.equal(asked.url, '/token?x=1&audience=https%3A%2F%2Fckrets.ai'); assert.equal(asked.auth, 'bearer FAKE-request-token');
   assert.equal(r.code, 3, 'the made-up token is refused by the API'); assert.match(r.err, /^ckrets: 401/);
 });
 
 test('helper: a fragment.v1 value decrypts with the share URL\'s #k=; what it cannot open is refused before the reveal is spent', async () => {
-  const v = lab(), s = fragmentSeal(v), c = await create({ value: s.value, client_encrypted: true, wrapped_key: 'fragment.v1' });
+  const v = fake(), s = fragmentSeal(v), c = await create({ value: s.value, client_encrypted: true, wrapped_key: 'fragment.v1' });
   const r = (await helper(['reveal', `${c.url}#k=${s.k}`, '--print'])); assert.equal(r.status, 0, r.stderr); assert.equal(r.stdout, v);
   const h = await create({ value: s.value, client_encrypted: true, wrapped_key: 'hpke.v1.ZW5j.Y3Q' });
   // the /public check refuses before spending: hpke.v1 without CKRETS_ENC_KEY, pass.v1 always (Argon2id), a fragment without its k
@@ -140,7 +141,7 @@ test('mcp: initialize, the remote tools plus deliver_secret; reveal_secret off b
   assert.equal(init.result.serverInfo.name, 'ckrets-stdio');
   const tools = (await s.rpc('tools/list', {})).result.tools.map((t) => t.name);
   assert.deepEqual(tools, ['create_secret', 'get_secret_status', 'revoke_secret', 'get_limits', 'get_public_view', 'verify_receipt', 'request_secret', 'get_request', 'deliver_secret']);
-  const v = lab(), c = await s.rpc('tools/call', { name: 'create_secret', arguments: { value: v, ttl: '15m' } });
+  const v = fake(), c = await s.rpc('tools/call', { name: 'create_secret', arguments: { value: v, ttl: '15m' } });
   assert.ok(!c.result.isError, JSON.stringify(c.result)); assert.ok(!JSON.stringify(c.result).includes(v), 'create never echoes the value');
   assert.equal((await s.rpc('tools/call', { name: 'reveal_secret', arguments: { token: 'ck_X' } })).error.code, -32602, 'reveal_secret is off');
   s.close();
@@ -148,13 +149,13 @@ test('mcp: initialize, the remote tools plus deliver_secret; reveal_secret off b
   assert.equal((await (async () => { const d = mcpSession({ CKRETS_ALLOW_REVEAL_IN_CONTEXT: '1' }); const r = (await d.rpc('tools/list', {})).result.tools.some((t) => t.name === 'reveal_secret'); d.close(); return r; })()), false, '"1" is not true');
   const on = mcpSession({ CKRETS_ALLOW_REVEAL_IN_CONTEXT: 'true' });
   assert.ok((await on.rpc('tools/list', {})).result.tools.some((t) => t.name === 'reveal_secret'), 'listed when the operator turns it on');
-  const v2 = lab(), c2 = await create({ value: v2 }), rv = (await on.rpc('tools/call', { name: 'reveal_secret', arguments: { token: c2.token } })).result;
+  const v2 = fake(), c2 = await create({ value: v2 }), rv = (await on.rpc('tools/call', { name: 'reveal_secret', arguments: { token: c2.token } })).result;
   assert.equal(rv.structuredContent.value, v2); assert.equal(rv.structuredContent.revealsLeft, 0); on.close();
 });
 
 test('mcp: deliver_secret writes only to configured sinks, returns the digest not the value; anything else is refused before the reveal', async () => {
   const dir = path.join(TMP, 'sinks') + '/', s = mcpSession({ CKRETS_SINKS: `file:${dir},env:APP_TOKEN` });
-  const v = lab(), c = await create({ value: v, reveals: 2 });
+  const v = fake(), c = await create({ value: v, reveals: 2 });
   for (const sink of ['file:/etc/passwd', `file:${dir}../escape`, 'env:PATH', 'helper', 'shell:rm']) {
     const r = (await s.rpc('tools/call', { name: 'deliver_secret', arguments: { token: c.token, sink } })).result;
     assert.equal(r.isError, true, sink);
@@ -170,7 +171,7 @@ test('mcp: deliver_secret writes only to configured sinks, returns the digest no
 test('mcp: a loader, shell or server variable is never a sink, even when the operator lists it; nothing is spent', async () => {
   const bad = ['env:LD_PRELOAD', 'env:DYLD_INSERT_LIBRARIES', 'env:NODE_OPTIONS', 'env:BASH_ENV', 'env:PYTHONPATH', 'env:HTTPS_PROXY', 'env:CKRETS_KEY', 'env:CKRETS_BASE_URL',
     'env:REQUESTS_CA_BUNDLE', 'env:CURL_CA_BUNDLE', 'env:GIT_CONFIG_COUNT', 'env:GIT_CONFIG_KEY_0', 'env:GIT_CONFIG_VALUE_12', 'env:PROMPT_COMMAND', 'env:GIT_ASKPASS', 'env:SSH_ASKPASS'];
-  const s = mcpSession({ CKRETS_SINKS: [...bad, 'env:APP_TOKEN'].join(',') }), c = await create({ value: lab(), reveals: 2 });
+  const s = mcpSession({ CKRETS_SINKS: [...bad, 'env:APP_TOKEN'].join(',') }), c = await create({ value: fake(), reveals: 2 });
   for (const sink of bad) {
     const r = (await s.rpc('tools/call', { name: 'deliver_secret', arguments: { token: c.token, sink } })).result;
     assert.equal(r.isError, true, sink); assert.match(r.content[0].text, /never a sink; nothing was revealed/, sink);
@@ -179,36 +180,36 @@ test('mcp: a loader, shell or server variable is never a sink, even when the ope
   assert.ok(!ok.isError, JSON.stringify(ok)); assert.equal(ok.structuredContent.revealsLeft, 1, 'the refused sinks spent nothing'); s.close();
 });
 
-test('python: ckrets reveal --env, --file, --print; key and publicKey proofs; fragment.v1; the API in Python', { skip: !hasPy && 'python3 with cryptography not available' }, async () => {
-  const v = lab(), c = await create({ value: v, reveals: 3 }), f = path.join(TMP, 'py.token');
+test('python: ckrets reveal --env, --file, --print; key and publicKey proofs; fragment.v1; the API in Python', { skip: noPy }, async () => {
+  const v = fake(), c = await create({ value: v, reveals: 3 }), f = path.join(TMP, 'py.token');
   const e = (await py(['reveal', c.url, '--env', 'X', ...echoEnv('X')])); assert.equal(e.status, 0, e.stderr); assert.equal(e.stdout, v); assert.ok(!e.stderr.includes(v));
   assert.equal((await py(['reveal', c.token, '--file', f])).status, 2, '--file needs --mode'); assert.ok(!fs.existsSync(f));
   const pf = await py(['reveal', c.token, '--file', f, '--mode', '0600']); assert.equal(pf.status, 0, pf.stderr); assert.equal(fs.readFileSync(f, 'utf8'), v); assert.equal(fs.statSync(f).mode & 0o777, 0o600);
   assert.equal(pf.stdout, ''); assert.ok(!pf.stderr.includes(v));
   assert.equal((await py(['reveal', c.token, '--print'])).stdout, v); assert.match((await py(['reveal', c.token, '--print'])).stderr, /\[token-gone\]/);
   assert.equal((await py(['reveal', c.token])).status, 2);
-  const R = await mint('LAB py recipient'), ck = await create({ value: v, audience: { type: 'key', id: R.keyId } });
+  const R = await mint('FAKE py recipient'), ck = await create({ value: v, audience: { type: 'key', id: R.keyId } });
   assert.equal((await py(['reveal', ck.token, '--print'], { CKRETS_KEY: R.key })).stdout, v);
   const P = ed(), cp = await create({ value: v, audience: { type: 'publicKey', jwk: { kty: 'OKP', crv: 'Ed25519', x: P.x } } });
   const sig = (await py(['reveal', cp.token, '--print'], { CKRETS_SIGNING_KEY: jwkFile(P) })); assert.equal(sig.status, 0, sig.stderr); assert.equal(sig.stdout, v);
   const s = fragmentSeal(v), cf = await create({ value: s.value, client_encrypted: true, wrapped_key: 'fragment.v1' });
   assert.equal((await py(['reveal', `${cf.url}#k=${s.k}`, '--print'])).stdout, v);
-  const lib = await run('python3', ['-c', 'import ckrets,json; c=ckrets.create("LAB_py_api", ttl="15m"); r=ckrets.reveal(c["url"]); print(json.dumps([r["value"], ckrets.status(c["token"], c["manageToken"])["state"]]))'],
+  const lib = await run('python3', ['-c', 'import ckrets,json; c=ckrets.create("FAKE_py_api", ttl="15m"); r=ckrets.reveal(c["url"]); print(json.dumps([r["value"], ckrets.status(c["token"], c["manageToken"])["state"]]))'],
     { env: { ...clean, CKRETS_BASE_URL: srv.url, PYTHONPATH: path.join(ROOT, 'python') } });
-  assert.deepEqual(JSON.parse(lib.stdout), ['LAB_py_api', 'revealed'], lib.stderr);
+  assert.deepEqual(JSON.parse(lib.stdout), ['FAKE_py_api', 'revealed'], lib.stderr);
 });
 
-test('python: the same file rules, stdin and no --key', { skip: !hasPy && 'python3 with cryptography not available' }, async () => {
+test('python: the same file rules, stdin and no --key', { skip: noPy }, async () => {
   await fileRules(py, 'p');
-  const v = lab(), c = await create({ value: v });
+  const v = fake(), c = await create({ value: v });
   const r = await py(['reveal', '-', '--print'], {}, `${c.url}\n`); assert.equal(r.status, 0, r.stderr); assert.equal(r.stdout, v);
 });
 
 test('mcp: a file sink that exists, or is a symlink, is refused before the reveal', async () => {
   const dir = fs.mkdtempSync(path.join(TMP, 'm-')) + '/', s = mcpSession({ CKRETS_SINKS: `file:${dir}` });
-  const c = await create({ value: lab(), reveals: 2 }); fs.writeFileSync(`${dir}there`, 'LAB_previous'); fs.writeFileSync(`${dir}t`, 'LAB_untouched'); fs.symlinkSync(`${dir}t`, `${dir}ln`);
+  const c = await create({ value: fake(), reveals: 2 }); fs.writeFileSync(`${dir}there`, 'FAKE_previous'); fs.writeFileSync(`${dir}t`, 'FAKE_untouched'); fs.symlinkSync(`${dir}t`, `${dir}ln`);
   for (const f of ['there', 'ln']) { const r = (await s.rpc('tools/call', { name: 'deliver_secret', arguments: { token: c.token, sink: `file:${dir}${f}` } })).result; assert.equal(r.isError, true, f); assert.match(r.content[0].text, /nothing was revealed/); }
-  assert.equal(fs.readFileSync(`${dir}there`, 'utf8'), 'LAB_previous'); assert.equal(fs.readFileSync(`${dir}t`, 'utf8'), 'LAB_untouched'); assert.equal(await left(c), 2); s.close();
+  assert.equal(fs.readFileSync(`${dir}there`, 'utf8'), 'FAKE_previous'); assert.equal(fs.readFileSync(`${dir}t`, 'utf8'), 'FAKE_untouched'); assert.equal(await left(c), 2); s.close();
 });
 
 test('unpublished and consistent: private packages, the registry entry names the npm package and the remote, versions agree', async () => {
@@ -263,33 +264,33 @@ test('publishing: trusted publishing only (no token), off by default, tests agai
 test('quickstart: packed, installed fresh, the helper and the Python CLI reveal and the MCP server lists its tools, against the API under test', async () => {
   const r = await run('bash', [path.join(ROOT, 'scripts', 'quickstart.sh'), srv.url], { env: { ...clean } });
   assert.equal(r.status, 0, r.stdout + r.stderr); assert.match(r.stdout, /quickstart ok against/);
-  assert.ok(!/LAB_[0-9a-f]{16}/.test(r.stdout + r.stderr), 'no value is printed');
+  assert.ok(!/FAKE_[0-9a-f]{16}/.test(r.stdout + r.stderr), 'no value is printed');
 });
 
-test('python: an anonymous create answers a 428 by solving its stamp and sending again (a busy tier, or a test deployment that always asks)', { skip: !hasPy && 'python3 with cryptography not available' }, async () => {
+test('python: an anonymous create answers a 428 by solving its stamp and sending again (a busy tier, or a test deployment that always asks)', { skip: noPy }, async () => {
   // offline the server runs in this process, so this makes it ask every time; staging asks every time already
   const was = process.env.STAMP_MODE; process.env.STAMP_MODE = 'always';
   try {
-    const r = await run('python3', ['-c', 'import ckrets,json; c=ckrets.create("LAB_py_stamp", ttl="15m"); print(json.dumps([bool(c.get("token")), bool(c.get("manageToken"))]))'],
+    const r = await run('python3', ['-c', 'import ckrets,json; c=ckrets.create("FAKE_py_stamp", ttl="15m"); print(json.dumps([bool(c.get("token")), bool(c.get("manageToken"))]))'],
       { cwd: path.join(__dirname, '..', 'python'), env: { ...clean, CKRETS_BASE_URL: srv.url } });
     assert.equal(r.status, 0, r.stderr); assert.equal(r.stdout.trim(), '[true, true]');
   } finally { if (was === undefined) delete process.env.STAMP_MODE; else process.env.STAMP_MODE = was; }
 });
 
-test('python: a stamp over 26 bits is refused at once with a clear error (a wrong base URL cannot make it spin)', { skip: !hasPy && 'python3 with cryptography not available' }, async () => {
+test('python: a stamp over 26 bits is refused at once with a clear error (a wrong base URL cannot make it spin)', { skip: noPy }, async () => {
   const r = await run('python3', ['-c', 'import ckrets\ntry:\n  ckrets.solve_stamp("x", 40)\nexcept ckrets.CkretsError as e:\n  print(e.status, "at most 26" in str(e))'], { cwd: path.join(__dirname, '..', 'python'), env: { ...clean } });
   assert.equal(r.status, 0, r.stderr); assert.equal(r.stdout.trim(), '428 True');
 });
 
-test('python parity: revoke, limits, mint_key, an Idempotency-Key on every create (a retry replays), clientEncrypted in camelCase', { skip: !hasPy && 'python3 with cryptography not available' }, async () => {
+test('python parity: revoke, limits, mint_key, an Idempotency-Key on every create (a retry replays), clientEncrypted in camelCase', { skip: noPy }, async () => {
   const r = await run('python3', ['-c', `
 import ckrets, json, os
-k = ckrets.mint_key(label="LAB python parity")
+k = ckrets.mint_key(label="FAKE python parity")
 env = {**os.environ, "CKRETS_KEY": k["key"]}
 lim = ckrets.limits(env=env)
-a = ckrets.create("LAB_py_idem", ttl="15m", idempotency_key="LAB-py-idem-1", env=env)
-b = ckrets.create("LAB_py_idem", ttl="15m", idempotency_key="LAB-py-idem-1", env=env)
-c = ckrets.create("LAB_py_auto", ttl="15m", env=env); d = ckrets.create("LAB_py_auto", ttl="15m", env=env)
+a = ckrets.create("FAKE_py_idem", ttl="15m", idempotency_key="FAKE-py-idem-1", env=env)
+b = ckrets.create("FAKE_py_idem", ttl="15m", idempotency_key="FAKE-py-idem-1", env=env)
+c = ckrets.create("FAKE_py_auto", ttl="15m", env=env); d = ckrets.create("FAKE_py_auto", ttl="15m", env=env)
 e = ckrets.create("v1.AAAAAAAAAAAAAAAA.BBBB", ttl="15m", client_encrypted=True, wrapped_key="fragment.v1", env=env)
 pub = ckrets._request("GET", os.environ["CKRETS_BASE_URL"] + "/v1/secrets/" + e["token"] + "/public")[1]
 rv = ckrets.revoke(a["token"], a["manageToken"], env=env)
@@ -300,7 +301,7 @@ print(json.dumps({"tier": lim.get("tier"), "same": a["token"] == b["token"], "au
   assert.deepEqual(JSON.parse(r.stdout), { tier: 'free', same: true, auto_differ: true, kid: 'key_', ce: [true, 'fragment.v1'], revoked: true, state: 'revoked' });
 });
 
-test('python: hpke.v1 opens what Python cryptography\'s own HPKE seals; refused before the reveal without CKRETS_ENC_KEY', { skip: !hasPy && 'python3 with cryptography not available' }, async () => {
+test('python: hpke.v1 opens what Python cryptography\'s own HPKE seals; refused before the reveal without CKRETS_ENC_KEY', { skip: noPy }, async () => {
   const r = await run('python3', ['-c', `
 import ckrets, os, json
 from cryptography.hazmat.primitives import hpke
@@ -317,8 +318,8 @@ print(json.dumps({"ok": ok, "refuse": ckrets.can_open("hpke.v1", None, {}) is no
 // ask a person through a page, never in chat. request prints the page url (and the requestId); the person answers
 // on the page (same origin); wait prints the token, which only the asking key reveals.
 for (const [name, cli] of [['helper', helper], ['python', py]]) {
-  test(`${name}: request prints the page url, wait prints the token once answered, and only the asking key reveals it`, { skip: name === 'python' && !hasPy && 'python3 without cryptography' }, async () => {
-    const k = await mint(`LAB clients ${name} asker`), env = { CKRETS_KEY: k.key };
+  test(`${name}: request prints the page url, wait prints the token once answered, and only the asking key reveals it`, { skip: name === 'python' && noPy }, async () => {
+    const k = await mint(`FAKE clients ${name} asker`), env = { CKRETS_KEY: k.key };
     assert.equal((await cli(['request', '--prompt', 'Your code'])).status, 2, 'no key: refused before any call');
     const q = await cli(['request', '--prompt', 'Enter the code from your authenticator', '--kind', 'otp', '--plaintext'], env);   // the plain path (both encrypt by default)
     assert.equal(q.status, 0, q.stderr); const [url, id] = q.stdout.trim().split('\n');
@@ -327,7 +328,7 @@ for (const [name, cli] of [['helper', helper], ['python', py]]) {
     const a = await fetch(`${srv.url}/v1/requests/${id}/answer`, { method: 'POST', headers: { 'content-type': 'application/json', origin: srv.url }, body: JSON.stringify({ value: code }) });
     assert.equal(a.status, 200);
     const w = await cli(['wait', id], env); assert.equal(w.status, 0, w.stderr); const token = w.stdout.trim(); assert.match(token, /^ck_[0-9A-Z]{26}$/);
-    const other = await mint(`LAB clients ${name} other`);
+    const other = await mint(`FAKE clients ${name} other`);
     assert.equal((await cli(['reveal', token, '--print'], { CKRETS_KEY: other.key })).status, 3, 'another key is refused');
     const r = await cli(['reveal', '-', '--env', 'OTP', ...echoEnv('OTP')], env, token);
     assert.equal(r.status, 0, r.stderr); assert.equal(r.stdout, code);

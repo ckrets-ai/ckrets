@@ -22,13 +22,28 @@ No npm or PyPI token exists anywhere, and none is ever added to this repository.
 
 ## The workflow refuses unless
 
-- it was started from an annotated tag `v<version>` (`git tag -s`, not a lightweight tag), and the tag's commit is on
-  `main`;
+- it was started from an annotated tag `v<version>` (`git tag -a`, not a lightweight tag) that points at the commit being
+  run, and that commit is on `main`;
+- any signature on the tag verifies (an unsigned annotated tag is accepted; signing with `git tag -s` is
+  recommended, and when GitHub cannot check a signature just then, the run goes on and says so). A signature that
+  verifies proves only that a key GitHub knows made it, not who should release: the environments' required reviewer is
+  the real gate;
 - that version is the same, as an exact pin (`0.10.0`, never a `^` or `~` range), in `helper/package.json`,
   `mcp/package.json` (and its dependency on `@ckrets/helper`), `registry/server.json` (both fields),
   `python/pyproject.toml` and `python/ckrets/__init__.py`;
 - no package is marked private (`"private": true`, `Private :: Do Not Upload`);
 - the full test suite passes against staging, and the quickstart passes from a fresh install against production.
+
+## Before the first release
+
+Once, before the first tag is pushed here:
+
+1. In a scratch repository, run the tag guard step of `publish.yml` (the step "Refuse unless run from the annotated tag")
+   from a `workflow_dispatch` workflow: push an annotated tag on a commit on `main` and run it from that tag (it must
+   pass, and `GITHUB_SHA` must be the tagged commit); then run it from a lightweight tag and from a tag on a commit off
+   `main` (both must be refused). The guard has only been simulated so far; this proves it against GitHub.
+2. Check the repository settings in [How it is set up](#how-it-is-set-up): the environments' reviewers and `v*` limits,
+   the tag ruleset, and the repository variables.
 
 ## Steps
 
@@ -37,7 +52,7 @@ No npm or PyPI token exists anywhere, and none is ever added to this repository.
 2. **Merge it, then tag that commit on `main`:**
    ```bash
    git switch main && git pull --ff-only
-   git tag -s v0.10.0 -m "v0.10.0"        # a signed, annotated tag
+   git tag -a v0.10.0 -m "v0.10.0"        # annotated (required); git tag -s also signs it (recommended)
    git push origin v0.10.0
    ```
 3. **Run the workflow from the tag:** Actions, **Publish**, **Run workflow**, "Use workflow from" **Tags: v0.10.0**.

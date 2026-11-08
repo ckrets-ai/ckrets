@@ -24,7 +24,7 @@ test('the official SDK client: initialize, tools/list (no reveal_secret by defau
   assert.equal(client.getServerVersion().name, 'ckrets-stdio');
   const names = (await client.listTools()).tools.map((t) => t.name);
   assert.deepEqual(names, ['create_secret', 'get_secret_status', 'revoke_secret', 'get_limits', 'get_public_view', 'verify_receipt', 'request_secret', 'get_request', 'deliver_secret']);
-  const value = `LAB_${crypto.randomBytes(8).toString('hex')}`;
+  const value = `FAKE_${crypto.randomBytes(8).toString('hex')}`;
   const created = await client.callTool({ name: 'create_secret', arguments: { value, ttl: '15m' } });
   assert.equal(created.isError, false); assert.equal(created.structuredContent.status, 201); assert.ok(!JSON.stringify(created).includes(value));
   const delivered = await client.callTool({ name: 'deliver_secret', arguments: { token: created.structuredContent.url, sink: `file:${TMP}/sdk.token` } });   // encrypted here, so the whole url (its #k=) opens it
@@ -32,7 +32,7 @@ test('the official SDK client: initialize, tools/list (no reveal_secret by defau
   assert.ok(!JSON.stringify(delivered).includes(value), 'the value stays out of the result');
   const limits = await client.callTool({ name: 'get_limits', arguments: {} }); assert.equal(limits.structuredContent.status, 200);
   // the SDK checks each result against the tool's outputSchema: the free public view and the receipt check
-  const c2 = await client.callTool({ name: 'create_secret', arguments: { value: `LAB_${crypto.randomBytes(8).toString('hex')}`, ttl: '15m' } });
+  const c2 = await client.callTool({ name: 'create_secret', arguments: { value: `FAKE_${crypto.randomBytes(8).toString('hex')}`, ttl: '15m' } });
   const pv = await client.callTool({ name: 'get_public_view', arguments: { token: c2.structuredContent.token } }); assert.equal(pv.structuredContent.state, 'pending');
   const vr = await client.callTool({ name: 'verify_receipt', arguments: { receipt: c2.structuredContent.receipt } }); assert.equal(vr.structuredContent.valid, true);
   } finally { await client.close(); }
